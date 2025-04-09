@@ -43,8 +43,8 @@ DEVELOPER_CHAT_ID = 138562035
 CHOOSING, TYPING_REPLY, TYPING_CHOICE, NEW_USER, SAVINGS, BUDGET, SAVINGS_GOAL, AGE_GOAL = range(8)
 
 reply_keyboard = [
-    ['Age', 'Current Savings', 'Monthly Budget', 'Savings Goal', 'Age Goal'],
-    ['Done']
+    ['Current Savings', 'Monthly Budget'],
+    ['Savings Goal', 'Age Goal']
 ]
 markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, input_field_placeholder="What do you want to tell me?")
 
