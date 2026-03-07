@@ -11,6 +11,7 @@ from typing import Dict, Any
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+STRESS_TEST_INTEREST_RATE = 4.0
 
 @dataclass
 class ECAffordabilityResult:
@@ -257,6 +258,7 @@ class ECCalculatorService:
         """
         logger.debug(f"💰 MAX_LOAN: Calculating maximum loan with MSR, TDSR, and LTV constraints")
         
+        interest_rate = STRESS_TEST_INTEREST_RATE
         # Constraint 1: MSR (Mortgage Servicing Ratio) - 30% of gross monthly income
         max_monthly_payment_msr = household_income * 0.30
         max_loan_msr = ECCalculatorService._calculate_loan_from_monthly_payment(
