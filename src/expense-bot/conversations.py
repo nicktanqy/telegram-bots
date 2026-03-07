@@ -103,7 +103,6 @@ class GenericConversationHandler:
             State code (for ConversationHandler)
         """
         user = update.message.from_user
-        logger.info(f"🔴 ENTRY_handle_input: User '{user.first_name}' sent message '{update.message.text}' - HANDLER WAS CALLED")
         flow_name = ConversationContext.get_current_flow(context.user_data)
         current_step = ConversationContext.get_current_step(context.user_data)
         

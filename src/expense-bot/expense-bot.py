@@ -103,7 +103,6 @@ Let's start by setting up your profile."""
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
         """Handle main menu choices."""
-        logger.info(f"🔴🔴🔴 HANDLE_MENU_CHOICE CALLED - Message: '{update.message.text}'")
         choice = update.message.text
         user = update.message.from_user
         logger.info(f"🎯 MENU: User '{user.first_name}' selected: '{choice}'")
@@ -216,7 +215,6 @@ Let's start by setting up your profile."""
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> int:
         """Generic flow input handler."""
-        logger.info(f"🔴🔴🔴 HANDLE_FLOW_INPUT CALLED - Message: '{update.message.text}'")
         logger.debug(f"🔄 HANDLER: handle_flow_input called")
         
         current_flow = ConversationContext.get_current_flow(context.user_data)
@@ -358,7 +356,6 @@ Let's start by setting up your profile."""
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Cancel current operation."""
-        logger.info(f"🔴🔴🔴 CANCEL HANDLER CALLED - Message: '{update.message.text}'")
         user = update.message.from_user
         current_flow = ConversationContext.get_current_flow(context.user_data)
         logger.info(f"🛑 CANCEL: User '{user.first_name}' cancelled flow '{current_flow}'")
@@ -423,7 +420,7 @@ def main() -> None:
 
     # Add a critical error handler to catch ANY exception
     async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        logger.error(f"🔴🔴🔴 APPLICATION ERROR: {context.error}", exc_info=context.error)
+        logger.error(f"❌ Application error: {context.error}", exc_info=context.error)
     
     application.add_error_handler(error_handler)
 
@@ -431,12 +428,9 @@ def main() -> None:
     bot = ExpenseBot()
     
     logger.debug(f"📝 HANDLERS: Adding command handlers (global)")
-    # These commands work from any state - BUT NOT /start, that's in ConversationHandler
-    # application.add_handler(CommandHandler("start", bot.start))  # REMOVED - handle in ConversationHandler
-    application.add_handler(CommandHandler("menu", bot.menu))
-    application.add_handler(CommandHandler("stats", bot.stats))
-    application.add_handler(CommandHandler("expense", bot.expense))
-    application.add_handler(CommandHandler("exit", bot.exit_flow))
+    # IMPORTANT: Commands that return states MUST be in ConversationHandler fallbacks only,
+    # not here, so ConversationHandler can manage state transitions properly.
+    # Only add handlers for commands that don't affect conversation state.
     application.add_handler(CommandHandler("show_data", bot.show_data))
     
     logger.debug(f"📝 HANDLERS: Adding conversation handler")
