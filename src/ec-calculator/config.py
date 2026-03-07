@@ -79,6 +79,16 @@ Please provide the following information:""",
                     field_type=FieldType.CURRENCY,
                 ),
             ),
+            ConversationField(
+                key="other_debts",
+                form_field=FormField(
+                    key="other_debts",
+                    display_name="Other Monthly Debts",
+                    prompt="Do you have any other monthly debts (e.g., car loan, credit cards, student loans)? (in SGD, enter 0 if none)",
+                    field_type=FieldType.CURRENCY,
+                    validation_fn=lambda x: (float(x) >= 0, "Other debts cannot be negative") if x else (False, "Other debts value is required"),
+                ),
+            ),
         ],
     )
 
