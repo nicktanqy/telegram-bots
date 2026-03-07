@@ -1,240 +1,451 @@
-# /start
-# IF new user, goto signup flow
-# ELSE goto CHOOSING (view, edit, add_expense)
+"""Main bot application."""
 
-# /signup
-# ask for age>savings>budget>savings goal>age goal
-# goto CHOOSING (view, edit, add_expense)
-
-# CHOOSING
-# show menu (view, edit, add_expense)
-# view: ask for what to view (savings, budget, savings goal, age goal)
-# edit: ask for what to edit (savings, budget, savings goal, age goal)
-# add_expense: ask for value of expense
-# goto TYPING_CHOICE
-
-# TYPING_CHOICE
-# ask for value of expense (or savings, budget, savings goal, age goal)
-# goto TYPING_REPLY
-
-# TYPING_REPLY
-# store the value of expense (or savings, budget, savings goal, age goal)
-# goto CHOOSING
-# DONE
 import logging
 import os
-from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
-from telegram.ext import ConversationHandler, PicklePersistence, filters, MessageHandler, ApplicationBuilder, ContextTypes, CommandHandler
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import (
+    ConversationHandler,
+    PicklePersistence,
+    filters,
+    MessageHandler,
+    ApplicationBuilder,
+    ContextTypes,
+    CommandHandler,
+)
 from dotenv import load_dotenv
 
-load_dotenv()  # take environment variables
-
+load_dotenv()
 
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
-# set higher logging level for httpx to avoid all GET and POST requests being logged
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
-DEVELOPER_CHAT_ID = 138562035
-
-CHOOSING, TYPING_REPLY, TYPING_CHOICE, NEW_USER, SAVINGS, BUDGET, SAVINGS_GOAL, AGE_GOAL = range(8)
-
-reply_keyboard = [
-    ['Current Savings', 'Monthly Budget'],
-    ['Savings Goal', 'Age Goal']
-]
-markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, input_field_placeholder="What do you want to tell me?")
+from .config import FLOWS, MAIN_MENU_BUTTONS, DEVELOPER_CHAT_ID
+from .conversations import GenericConversationHandler, ConversationContext, FLOW_COMPLETE
+from .services import ProfileService, ExpenseService
 
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start the conversation and ask for user information."""
-    user = update.message.from_user.first_name
-    logger.info("User %s started the conversation.", user)
-    reply_text = f"""Hi {user}! My name is Budget Billy.
-I'm here to help you track your expenses and savings.
-I can also help you with budgeting and financial planning.
-"""
-    status=-1
-    if context.user_data:
-        reply_text += f"\nSelect one of the options below to view your current status."
-        "\nYou can also start adding expenses by typing /expense."
-        status = CHOOSING
-        await update.message.reply_text(reply_text, reply_markup=markup)
-    else:
-        reply_text += (
-            "\nTo start, why don't you tell me more about yourself? What is your age?"
+# Conversation states
+MAIN_MENU, ACTIVE_FLOW = range(2)
+
+
+class ExpenseBot:
+    """Main bot class."""
+
+    def __init__(self):
+        self.conversation_handler = GenericConversationHandler(FLOWS)
+
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle /start command."""
+        try:
+            user = update.message.from_user
+            logger.info(f"👤 START: User '{user.first_name}' (ID: {user.id}) started conversation")
+            logger.debug(f"📊 USER_DATA: Existing data keys: {list(context.user_data.keys())}")
+            logger.debug(f"📋 IS_INITIALIZED CHECK: is_profile_initialized = {ProfileService.is_profile_initialized(context.user_data)}")
+
+            # Check if user is initialized
+            if ProfileService.is_profile_initialized(context.user_data):
+                logger.debug(f"✅ PROFILE: User is already initialized")
+                logger.info(f"📍 PATH: Going to 'returning existing user' branch")
+                welcome_text = f"""👋 Welcome back, {user.first_name}!
+
+{ProfileService.get_profile_summary(context.user_data)}
+
+What would you like to do?"""
+                logger.debug(f"📤 RESULT: Returning MAIN_MENU state")
+                await update.message.reply_text(
+                    welcome_text,
+                    reply_markup=ReplyKeyboardMarkup(
+                        MAIN_MENU_BUTTONS, one_time_keyboard=True
+                    ),
+                )
+                return MAIN_MENU
+            else:
+                logger.debug(f"🆕 PROFILE: User is new, initializing setup flow")
+                logger.info(f"📍 PATH: Going to 'new user setup' branch")
+                welcome_text = f"""🤖 **Budget Billy** - Your Personal Finance Assistant
+
+Hi {user.first_name}! 👋
+
+I'm here to help you:
+• Track your expenses
+• Manage your monthly budget
+• Work towards your savings goals
+• Achieve financial stability
+
+Let's start by setting up your profile."""
+                # Start setup flow
+                await update.message.reply_text(welcome_text)
+                logger.debug(f"📤 RESULT: Starting 'expense_setup' flow for new user")
+                
+                # Start the flow and transition to ACTIVE_FLOW
+                logger.info(f"🚀 CALLING: start_flow() for 'expense_setup'")
+                flow_result = await self.conversation_handler.start_flow(
+                    update, context, "expense_setup", target_state=ACTIVE_FLOW
+                )
+                logger.info(f"✅ RETURNED: start_flow() returned {flow_result}")
+                logger.debug(f"📤 STATE_CHANGE: start_flow returned {flow_result}, transitioning to ACTIVE_FLOW")
+                logger.debug(f"🔍 ConversationContext state: flow={ConversationContext.get_current_flow(context.user_data)}, step={ConversationContext.get_current_step(context.user_data)}")
+                return ACTIVE_FLOW
+        except Exception as e:
+            logger.error(f"❌ ERROR in start: {e}", exc_info=True)
+            await update.message.reply_text(
+                "❌ An error occurred during startup. Please try again later."
+            )
+            return MAIN_MENU
+
+    async def handle_menu_choice(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> int:
+        """Handle main menu choices."""
+        logger.info(f"🔴🔴🔴 HANDLE_MENU_CHOICE CALLED - Message: '{update.message.text}'")
+        choice = update.message.text
+        user = update.message.from_user
+        logger.info(f"🎯 MENU: User '{user.first_name}' selected: '{choice}'")
+
+        if "Add Expense" in choice:
+            logger.debug(f"📤 ACTION: Starting 'expense_tracking' flow")
+            result = await self.conversation_handler.start_flow(
+                update, context, "expense_tracking", target_state=ACTIVE_FLOW
+            )
+            logger.debug(f"📤 STATE_CHANGE: start_flow returned {result}")
+            return result
+
+        elif "View Stats" in choice:
+            logger.debug(f"📤 ACTION: Generating profile summary")
+            summary = ProfileService.get_profile_summary(context.user_data)
+            await update.message.reply_text(f"📊 {summary}")
+            return MAIN_MENU
+
+        elif "History" in choice:
+            logger.debug(f"📤 ACTION: Showing expense history")
+            await self.show_expense_history(update, context)
+            return MAIN_MENU
+
+        elif "Settings" in choice:
+            logger.debug(f"📤 ACTION: Settings not implemented")
+            await update.message.reply_text(
+                "⚙️ Settings not yet implemented.\nUse /edit_profile to update your information."
+            )
+            return MAIN_MENU
+
+        logger.debug(f"📤 RESULT: Returning MAIN_MENU state")
+        return MAIN_MENU
+
+    async def show_expense_history(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Show expense history by category."""
+        logger.debug(f"📊 HISTORY: Fetching expense history")
+        expenses_by_category = ExpenseService.get_expenses_by_category(
+            context.user_data
         )
-        status = NEW_USER
-        await update.message.reply_text(reply_text)
-    logger.info("User %s started the conversation.", update.message.from_user.first_name)
-    logger.info(f"User data: {context.user_data}")
-    return status
 
-async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Ask for the user's age."""
+        if not expenses_by_category:
+            logger.debug(f"ℹ️  INFO: No expenses found")
+            await update.message.reply_text("📋 No expenses recorded yet.")
+            return
 
-    context.user_data["age"] = update.message.text
-    await update.message.reply_text("Enter your savings.")
-    return SAVINGS
-
-async def savings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Ask for the user's savings."""
-    context.user_data["savings"] = update.message.text
-    logger.info(f"Savings: {update.message.text}")
-    await update.message.reply_text("Enter your monthly budget.")
-    return BUDGET
-
-async def budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Ask for the user's budget."""
-    context.user_data["budget"] = update.message.text
-    logger.info(f"Budget: {update.message.text}")
-
-    await update.message.reply_text("Enter your savings goal.")
-    return SAVINGS_GOAL
-
-async def savings_goal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Ask for the user's savings goal."""
-    context.user_data["savings_goal"] = update.message.text
-    logger.info(f"Savings Goal: {update.message.text}")
-
-    await update.message.reply_text("By what age do you want to achieve this goal?")
-    return AGE_GOAL
-
-async def age_goal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Ask for the user's age goal."""
-    context.user_data["age_goal"] = update.message.text
-    logger.info(f"Age Goal: {update.message.text}")
-    
-    await update.message.reply_text("Great! You're all set.\nI will keep track of your expenses and savings for you."
-                                    "You can always check your current status by typing /show_data."
-                                    )
-    return TYPING_CHOICE
-
-async def regular_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Store the user's choice and ask for a value."""
-    user = update.message.from_user
-    logger.info(f"{user.first_name} chose: {update.message.text}")
-    text = update.message.text.lower()
-    context.user_data["choice"] = text
-    if context.user_data.get(text):
-        reply_text = f"You already told me your {text}. It is {context.user_data.get(text)}."
-    else:
-        reply_text = f"Enter your {text}."
-    await update.message.reply_text(reply_text)
-
-    return TYPING_REPLY
-
-async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Display the gathered info and end the conversation."""
-    if "choice" in context.user_data:
-        del context.user_data["choice"]
-
-    await update.message.reply_text(
-        f"I learned these facts about you: {context.user_data}"
-        "\nUntil next time!",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-    return ConversationHandler.END
-
-async def received_information(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Store information provided by the user."""
-    state = CHOOSING
-    markup_func = markup
-    user = update.message.from_user
-    logger.info (f"Input from {user.first_name}: {update.message.text}")
-    category = context.user_data["choice"]
-    context.user_data[category] = update.message.text.lower()
-    text = f"Here is what you told me so far {context.user_data}."
+        logger.debug(f"📊 HISTORY: Found {len(expenses_by_category)} categories")
         
-    await update.message.reply_text(
-        text,
-        reply_markup=markup_func,
-    )
-    return state
+        message = "📋 **Expense History**\n━━━━━━━━━━━━━━━━\n"
+        total_amount = 0
+        for category, expenses in sorted(expenses_by_category.items()):
+            category_total = sum(e.amount for e in expenses)
+            total_amount += category_total
+            logger.debug(f"  • {category}: ${category_total:.2f} ({len(expenses)} items)")
+            
+            message += f"\n**{category.capitalize()}** (${category_total:.2f})\n"
+            for expense in sorted(expenses, key=lambda e: e.timestamp, reverse=True)[:5]:
+                desc = f" - {expense.description}" if expense.description else ""
+                message += f"  • ${expense.amount:.2f}{desc}\n"
 
-async def show_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Display the gathered info."""
-    await update.message.reply_text(
-        f"This is what you already told me: {context.user_data}"
-    )
+        logger.debug(f"💰 TOTAL: ${total_amount:.2f} across all categories")
+        await update.message.reply_text(message)
+
+    async def on_setup_complete(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, flow_data
+    ) -> None:
+        """Handle completion of setup flow."""
+        logger.info(f"✅ CALLBACK: Setup flow completed")
+        logger.debug(f"📦 SETUP_DATA: {flow_data}")
+        
+        ProfileService.initialize_profile(context.user_data, flow_data)
+        logger.debug(f"✅ PROFILE: User profile initialized successfully")
+        
+        completion_msg = FLOWS["expense_setup"].completion_message
+        await update.message.reply_text(
+            completion_msg,
+            reply_markup=ReplyKeyboardMarkup(MAIN_MENU_BUTTONS, one_time_keyboard=True),
+        )
+        logger.debug(f"📤 RESULT: Setup complete, showing main menu")
+
+    async def on_expense_complete(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE, flow_data
+    ) -> None:
+        """Handle completion of expense tracking flow."""
+        logger.info(f"✅ CALLBACK: Expense tracking flow completed")
+        logger.debug(f"📦 EXPENSE_DATA: {flow_data}")
+        
+        try:
+            expense = ExpenseService.add_expense(context.user_data, flow_data)
+            logger.info(f"✅ SAVED: Expense recorded - ${expense.amount} in '{expense.category}'")
+            logger.debug(f"  Amount: ${expense.amount:.2f}, Category: {expense.category}, Description: {expense.description}")
+            
+            completion_msg = FLOWS["expense_tracking"].completion_message
+            await update.message.reply_text(
+                completion_msg,
+                reply_markup=ReplyKeyboardMarkup(
+                    MAIN_MENU_BUTTONS, one_time_keyboard=True
+                ),
+            )
+            logger.debug(f"📤 RESULT: Expense complete, showing main menu")
+        except Exception as e:
+            logger.error(f"❌ ERROR: Failed to save expense: {e}")
+            logger.debug(f"Exception details: {type(e).__name__}: {str(e)}")
+            await update.message.reply_text(
+                "❌ Error saving expense. Please try again."
+            )
+
+    async def handle_flow_input(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> int:
+        """Generic flow input handler."""
+        logger.info(f"🔴🔴🔴 HANDLE_FLOW_INPUT CALLED - Message: '{update.message.text}'")
+        logger.debug(f"🔄 HANDLER: handle_flow_input called")
+        
+        current_flow = ConversationContext.get_current_flow(context.user_data)
+        logger.debug(f"🔍 FLOW: Current flow is '{current_flow}'")
+
+        on_completion = None
+        if current_flow == "expense_setup":
+            logger.debug(f"📍 FLOW_TYPE: Setup flow - will call on_setup_complete")
+            on_completion = self.on_setup_complete
+        elif current_flow == "expense_tracking":
+            logger.debug(f"📍 FLOW_TYPE: Tracking flow - will call on_expense_complete")
+            on_completion = self.on_expense_complete
+        else:
+            if current_flow:
+                logger.warning(f"⚠️  WARNING: Unknown flow: {current_flow}")
+            else:
+                logger.warning(f"⚠️  WARNING: No active flow")
+
+        try:
+            logger.debug(f"📞 PROCESSING: Calling conversation handler")
+            result = await self.conversation_handler.handle_input(
+                update, context, on_completion=on_completion
+            )
+            
+            logger.debug(f"📊 RESULT_CODE: Handler returned {result}")
+
+            if result == FLOW_COMPLETE:  # Flow complete
+                logger.debug(f"✅ FLOW_COMPLETE: Returning MAIN_MENU")
+                return MAIN_MENU
+
+            logger.debug(f"➡️  CONTINUE: Returning ACTIVE_FLOW")
+            return ACTIVE_FLOW
+        
+        except Exception as e:
+            logger.error(f"❌ ERROR in handle_flow_input: {e}", exc_info=True)
+            await update.message.reply_text(
+                "❌ An error occurred. Please try again or use /start to restart."
+            )
+            ConversationContext.clear_flow(context)
+            return MAIN_MENU
+
+    async def show_data(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show all stored user data (for debugging)."""
+        user = update.message.from_user
+        logger.debug(f"🔍 DEBUG: show_data command from user '{user.first_name}' (ID: {user.id})")
+        
+        if update.message.from_user.id != DEVELOPER_CHAT_ID:
+            logger.warning(f"⚠️  SECURITY: Unauthorized access attempt by ID {user.id}")
+            await update.message.reply_text("❌ Not authorized.")
+            return
+
+        logger.debug(f"✅ AUTHORIZED: Dumping all user data")
+        logger.debug(f"📦 FULL_USER_DATA: {context.user_data}")
+        
+        data_str = str(context.user_data)
+        await update.message.reply_text(f"Debug data:\n{data_str}")
+
+    async def menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle /menu command - show main menu."""
+        user = update.message.from_user
+        logger.info(f"📱 COMMAND: User '{user.first_name}' called /menu")
+        
+        if not ProfileService.is_profile_initialized(context.user_data):
+            logger.debug(f"⚠️  INFO: User not initialized, starting setup")
+            await update.message.reply_text(
+                "👋 Welcome! Let's set up your profile first."
+            )
+            return await self.start(update, context)
+        
+        logger.debug(f"📤 ACTION: Showing main menu")
+        await update.message.reply_text(
+            "📋 Main Menu - What would you like to do?",
+            reply_markup=ReplyKeyboardMarkup(
+                MAIN_MENU_BUTTONS, one_time_keyboard=True
+            ),
+        )
+        return MAIN_MENU
+
+    async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle /stats command - show profile summary."""
+        user = update.message.from_user
+        logger.info(f"📱 COMMAND: User '{user.first_name}' called /stats")
+        
+        if not ProfileService.is_profile_initialized(context.user_data):
+            logger.debug(f"⚠️  INFO: User not initialized")
+            await update.message.reply_text(
+                "❌ Please set up your profile first with /start"
+            )
+            return ConversationHandler.END
+        
+        logger.debug(f"📤 ACTION: Generating profile summary")
+        summary = ProfileService.get_profile_summary(context.user_data)
+        await update.message.reply_text(f"📊 {summary}")
+        
+        current_state = ConversationContext.get_current_flow(context.user_data)
+        if current_state:
+            logger.debug(f"📤 RESULT: Returning ACTIVE_FLOW (active flow in progress)")
+            return ACTIVE_FLOW
+        logger.debug(f"📤 RESULT: Returning MAIN_MENU")
+        return MAIN_MENU
+
+    async def expense(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle /expense command - start expense tracking flow."""
+        user = update.message.from_user
+        logger.info(f"📱 COMMAND: User '{user.first_name}' called /expense")
+        
+        if not ProfileService.is_profile_initialized(context.user_data):
+            logger.debug(f"⚠️  INFO: User not initialized")
+            await update.message.reply_text(
+                "❌ Please set up your profile first with /start"
+            )
+            return ConversationHandler.END
+        
+        logger.debug(f"📤 ACTION: Starting 'expense_tracking' flow")
+        result = await self.conversation_handler.start_flow(
+            update, context, "expense_tracking", target_state=ACTIVE_FLOW
+        )
+        logger.debug(f"📤 STATE_CHANGE: start_flow returned {result}")
+        return result
+
+    async def exit_flow(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Handle /exit command - exit current flow."""
+        user = update.message.from_user
+        current_flow = ConversationContext.get_current_flow(context.user_data)
+        
+        if current_flow:
+            logger.info(f"📱 COMMAND: User '{user.first_name}' called /exit (in flow '{current_flow}')")
+            logger.debug(f"🛑 ACTION: Exiting flow '{current_flow}'")
+            ConversationContext.clear_flow(context)
+            await update.message.reply_text(
+                "✅ Exited current flow.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+        else:
+            logger.info(f"📱 COMMAND: User '{user.first_name}' called /exit (no active flow)")
+            await update.message.reply_text("ℹ️ No active flow to exit.")
+        
+        return MAIN_MENU
+
+    async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Cancel current operation."""
+        logger.info(f"🔴🔴🔴 CANCEL HANDLER CALLED - Message: '{update.message.text}'")
+        user = update.message.from_user
+        current_flow = ConversationContext.get_current_flow(context.user_data)
+        logger.info(f"🛑 CANCEL: User '{user.first_name}' cancelled flow '{current_flow}'")
+        
+        await update.message.reply_text(
+            "❌ Cancelled.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        ConversationContext.clear_flow(context)
+        logger.debug(f"📤 RESULT: Returning MAIN_MENU state")
+        return MAIN_MENU
+
+    def build(self) -> ConversationHandler:
+        """Build the conversation handler."""
+        return ConversationHandler(
+            entry_points=[CommandHandler("start", self.start)],
+            states={
+                MAIN_MENU: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_menu_choice),
+                ],
+                ACTIVE_FLOW: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND, self.handle_flow_input
+                    ),
+                ],
+            },
+            fallbacks=[
+                CommandHandler("start", self.start),
+                CommandHandler("menu", self.menu),
+                CommandHandler("stats", self.stats),
+                CommandHandler("expense", self.expense),
+                CommandHandler("exit", self.exit_flow),
+                CommandHandler("cancel", self.cancel),
+            ],
+            name="ExpenseBot",
+            persistent=False,  # TEMPORARILY DISABLED TO DEBUG STATE TRANSITIONS
+        )
+
 
 def main() -> None:
-    logger.info("Starting the bot...")
+    """Start the bot."""
+    logger.info("🤖 Starting Budget Billy...")
+    logger.debug(f"📍 Initialization: Loading configuration and setting up handlers")
+
     bot_token = os.getenv("TOKEN", "")
     if not bot_token:
-        logger.error("Bot token not found. Please provide a token to get access to telegram API.")
+        logger.error("❌ Bot token not found. Set TOKEN environment variable.")
+        raise ValueError("TOKEN environment variable is required")
 
+    logger.debug(f"✅ TOKEN: Bot token loaded successfully")
+    
+    logger.debug(f"💾 PERSISTENCE: Initializing PicklePersistence")
     persistence = PicklePersistence(filepath="conversationbot")
-    application = ApplicationBuilder().token(bot_token).persistence(persistence).build()
-
-    # Set up the conversation handler with the states CHOOSING, TYPING_REPLY and TYPING_CHOICE
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
-        states={
-            CHOOSING: [
-                MessageHandler(
-                    filters.Regex("^(Current Savings|Monthly Budget)$"),
-                    regular_choice,
-                ),
-            ],
-            TYPING_CHOICE: [
-                MessageHandler(
-                    filters.TEXT & ~(filters.COMMAND | filters.Regex("^Done$")),
-                    regular_choice
-                )
-            ],
-            TYPING_REPLY: [
-                MessageHandler(
-                    filters.TEXT & (~filters.COMMAND | filters.Regex("^Done$")),
-                    received_information
-                ),
-            ],
-            NEW_USER: [
-                MessageHandler(
-                    filters.TEXT & (~filters.COMMAND | filters.Regex("^Done$")),
-                    new_user
-                ),
-            ],
-            SAVINGS: [
-                MessageHandler(
-                    filters.TEXT & (~filters.COMMAND | filters.Regex("^Done$")),
-                    savings
-                ),
-            ],
-            BUDGET: [
-                MessageHandler(
-                    filters.TEXT & (~filters.COMMAND | filters.Regex("^Done$")),
-                    budget
-                ),
-            ],
-            SAVINGS_GOAL: [
-                MessageHandler(
-                    filters.TEXT & (~filters.COMMAND | filters.Regex("^Done$")),
-                    savings_goal
-                ),
-            ],
-            AGE_GOAL: [
-                MessageHandler(
-                    filters.TEXT & (~filters.COMMAND | filters.Regex("^Done$")),
-                    age_goal
-                ),
-            ],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^Done$"), done)],
-        name="Expense Bot",
-        persistent=True,
+    
+    logger.debug(f"🔨 BUILDER: Creating ApplicationBuilder")
+    application = (
+        ApplicationBuilder()
+        .token(bot_token)
+        .persistence(persistence)
+        .build()
     )
-    application.add_handler(conv_handler)
 
-    show_data_handler = CommandHandler("show_data", show_data)
-    application.add_handler(show_data_handler)
+    # Add a critical error handler to catch ANY exception
+    async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logger.error(f"🔴🔴🔴 APPLICATION ERROR: {context.error}", exc_info=context.error)
+    
+    application.add_error_handler(error_handler)
 
-    # Run the bot until the user presses Ctrl-C
+    logger.debug(f"🤖 BOT: Creating ExpenseBot instance")
+    bot = ExpenseBot()
+    
+    logger.debug(f"📝 HANDLERS: Adding command handlers (global)")
+    # These commands work from any state - BUT NOT /start, that's in ConversationHandler
+    # application.add_handler(CommandHandler("start", bot.start))  # REMOVED - handle in ConversationHandler
+    application.add_handler(CommandHandler("menu", bot.menu))
+    application.add_handler(CommandHandler("stats", bot.stats))
+    application.add_handler(CommandHandler("expense", bot.expense))
+    application.add_handler(CommandHandler("exit", bot.exit_flow))
+    application.add_handler(CommandHandler("show_data", bot.show_data))
+    
+    logger.debug(f"📝 HANDLERS: Adding conversation handler")
+    application.add_handler(bot.build())
+
+    logger.info("✅ Bot ready. Starting polling...")
+    logger.debug(f"🎯 POLLING: Listening for updates (Press Ctrl+C to stop)")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
