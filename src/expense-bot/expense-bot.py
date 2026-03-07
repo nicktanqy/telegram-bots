@@ -2,6 +2,8 @@
 
 import logging
 import os
+import sys
+from pathlib import Path
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ConversationHandler,
@@ -14,6 +16,9 @@ from telegram.ext import (
 )
 from dotenv import load_dotenv
 
+# Add parent directory to path so we can import from common
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 load_dotenv()
 
 logging.basicConfig(
@@ -25,7 +30,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 from .config import FLOWS, MAIN_MENU_BUTTONS, DEVELOPER_CHAT_ID
-from .conversations import GenericConversationHandler, ConversationContext, FLOW_COMPLETE
+from common.conversations import GenericConversationHandler, ConversationContext, FLOW_COMPLETE
 from .services import ProfileService, ExpenseService
 
 
@@ -400,12 +405,12 @@ def main() -> None:
     logger.info("🤖 Starting Budget Billy...")
     logger.debug(f"📍 Initialization: Loading configuration and setting up handlers")
 
-    bot_token = os.getenv("TOKEN", "")
+    bot_token = os.getenv("EXP_BOT_TOKEN", "")
     if not bot_token:
-        logger.error("❌ Bot token not found. Set TOKEN environment variable.")
-        raise ValueError("TOKEN environment variable is required")
+        logger.error("❌ Bot token not found. Set EXP_BOT_TOKEN environment variable.")
+        raise ValueError("EXP_BOT_TOKEN environment variable is required")
 
-    logger.debug(f"✅ TOKEN: Bot token loaded successfully")
+    logger.debug(f"✅ EXP_BOT_TOKEN: Bot token loaded successfully")
     
     logger.debug(f"💾 PERSISTENCE: Initializing PicklePersistence")
     persistence = PicklePersistence(filepath="conversationbot")
