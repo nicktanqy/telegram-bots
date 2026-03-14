@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 STRESS_TEST_INTEREST_RATE = 4.0
+CPF_OA_INTEREST_RATE=0.025
 
 @dataclass
 class ECAffordabilityResult:
@@ -56,13 +57,15 @@ class ECAffordabilityResult:
             "Affordability Analysis": {
                 "Maximum Property Loan": f"SGD {self.maximum_property_loan:,.2f}",
                 "Monthly Mortgage Payment": f"SGD {self.monthly_mortgage_loan:,.2f}",
-                "Cash Upfront for Down Payment": f"SGD {self.cash_upfront_for_downpayment:,.2f}",
+                "5% Cash Downpayment": f"SGD{self.ec_price * 0.05:,.2f}",
+                "15% Cash Downpayment": f"SGD{self.ec_price * 0.15:,.2f}",
+                "Total Cash Upfront for Down Payment": f"SGD {self.cash_upfront_for_downpayment:,.2f}",
                 "Cash Top-up for Monthly Repayment": f"SGD {self.cash_topup_for_monthly_repayment:,.2f}",
                 "Remaining Amount to Pay": f"SGD {self.ec_price - self.maximum_property_loan - self.cash_upfront_for_downpayment:,.2f}",
+                "CPF After Fees": f"SGD {self.cpf_balance-self.buyer_stamp_duty:,.2f}",
                 "Cash Required at T.O.P": f"SGD {self.cash_required_at_top:,.2f}",
+                "Cash Required with Pledging": f"SGD {self.cash_required_at_top / 1.4:,.2f}",
                 "CPF Balance at T.O.P (2.5 years)": f"SGD {self.cpf_balance_at_top:,.2f}",
-                #"CPF Used to Pay Remainder": f"SGD {min(self.ec_price - self.maximum_property_loan - self.cash_upfront_for_downpayment, self.cpf_balance_at_top):,.2f}",
-                #"CPF Balance After T.O.P": f"SGD {max(0, self.cpf_balance_at_top - (self.ec_price - self.maximum_property_loan - self.cash_upfront_for_downpayment)):,.2f}",
             }
         }
 
@@ -423,6 +426,24 @@ class ECCalculatorService:
         return cash_at_top
 
     @staticmethod
+    def calculate_investment(principal, monthly_deposit, annual_rate, years):
+        # Interest compounded monthly
+        n = 12 
+        monthly_rate = annual_rate / n
+        total_months = int(years * n)
+        
+        # Part 1: Compound interest on the starting capital
+        # Formula: A = P(1 + r/n)^(nt)
+        principal_growth = principal * (1 + monthly_rate)**total_months
+        logger.debug(f"PRINCIPAL GROWTH {principal_growth}")
+        # Part 2: Future value of a series of monthly deposits (Ordinary Annuity)
+        # Formula: PMT * [((1 + r/n)^(nt) - 1) / (r/n)]
+        deposits_growth = monthly_deposit * (((1 + monthly_rate)**total_months - 1) / monthly_rate)
+        logger.debug(f"DEPOSITS GROWTH {deposits_growth}")
+        
+        return principal_growth + deposits_growth
+
+    @staticmethod
     def _calculate_cpf_at_top(
         initial_cpf_balance: float, cpf_used_for_fees: float, monthly_cpf_contribution: float
     ) -> float:
@@ -443,7 +464,8 @@ class ECCalculatorService:
             CPF balance at T.O.P (after 2.5 years)
         """
         months_to_top = 2.5 * 12  # 2.5 years = 30 months
-        cpf_at_top = initial_cpf_balance - cpf_used_for_fees + (monthly_cpf_contribution * months_to_top)
+        cpf_after_fees = initial_cpf_balance - cpf_used_for_fees
+        cpf_at_top = ECCalculatorService.calculate_investment(cpf_after_fees, monthly_cpf_contribution, CPF_OA_INTEREST_RATE, 2.5)
         
         logger.debug(f"💰 CPF_AT_TOP: SGD {initial_cpf_balance:,.2f} - SGD {cpf_used_for_fees:,.2f} + (SGD {monthly_cpf_contribution:,.2f} × 30 months) = SGD {cpf_at_top:,.2f}")
         return cpf_at_top
