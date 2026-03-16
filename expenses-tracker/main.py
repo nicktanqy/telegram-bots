@@ -29,9 +29,9 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-from .config import FLOWS, MAIN_MENU_BUTTONS, DEVELOPER_CHAT_ID
+from config import FLOWS, MAIN_MENU_BUTTONS, DEVELOPER_CHAT_ID
 from common.conversations import GenericConversationHandler, ConversationContext, FLOW_COMPLETE
-from .services import ProfileService, ExpenseService
+from services import ProfileService, ExpenseService
 
 
 
