@@ -23,7 +23,12 @@ function createExpenseSetupFlow() {
                     "Name",
                     "What is your name?",
                     FieldType.TEXT,
-                    null,
+                    (value) => {
+                        if (!value || value.trim().length < 2) {
+                            return { isValid: false, errorMessage: "Name must be at least 2 characters long." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
                     true
                 )
             ),
@@ -34,7 +39,13 @@ function createExpenseSetupFlow() {
                     "Age",
                     "What is your age?",
                     FieldType.NUMBER,
-                    null,
+                    (value) => {
+                        const age = parseInt(value);
+                        if (age < 13 || age > 120) {
+                            return { isValid: false, errorMessage: "Age must be between 13 and 120." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
                     true
                 )
             ),
@@ -45,7 +56,13 @@ function createExpenseSetupFlow() {
                     "Current Savings",
                     "How much do you currently have in savings?",
                     FieldType.CURRENCY,
-                    null,
+                    (value) => {
+                        const amount = parseFloat(value);
+                        if (amount < 0) {
+                            return { isValid: false, errorMessage: "Savings cannot be negative." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
                     true
                 )
             ),
@@ -56,7 +73,13 @@ function createExpenseSetupFlow() {
                     "Monthly Budget",
                     "What is your monthly budget?",
                     FieldType.CURRENCY,
-                    null,
+                    (value) => {
+                        const amount = parseFloat(value);
+                        if (amount <= 0) {
+                            return { isValid: false, errorMessage: "Monthly budget must be positive." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
                     true
                 )
             ),
@@ -67,7 +90,13 @@ function createExpenseSetupFlow() {
                     "Savings Goal",
                     "What is your savings goal amount?",
                     FieldType.CURRENCY,
-                    null,
+                    (value) => {
+                        const amount = parseFloat(value);
+                        if (amount <= 0) {
+                            return { isValid: false, errorMessage: "Savings goal must be positive." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
                     true
                 )
             ),
@@ -78,7 +107,13 @@ function createExpenseSetupFlow() {
                     "Goal Age",
                     "By what age do you want to achieve this goal?",
                     FieldType.NUMBER,
-                    null,
+                    (value) => {
+                        const age = parseInt(value);
+                        if (age < 13 || age > 120) {
+                            return { isValid: false, errorMessage: "Goal age must be between 13 and 120." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
                     true
                 )
             ),
@@ -104,7 +139,16 @@ function createExpenseTrackingFlow() {
                     "Expense Amount",
                     "How much did you spend?",
                     FieldType.CURRENCY,
-                    null,
+                    (value) => {
+                        const amount = parseFloat(value);
+                        if (amount <= 0) {
+                            return { isValid: false, errorMessage: "Expense amount must be positive." };
+                        }
+                        if (amount > 10000) {
+                            return { isValid: false, errorMessage: "Expense amount seems too high. Please enter a valid amount." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
                     true
                 )
             ),
@@ -115,7 +159,14 @@ function createExpenseTrackingFlow() {
                     "Category",
                     "What category? (e.g., food, transport, entertainment)",
                     FieldType.TEXT,
-                    null,
+                    (value) => {
+                        const category = value.toLowerCase().trim();
+                        const validCategories = ['food', 'transport', 'entertainment', 'utilities', 'shopping', 'healthcare', 'education', 'other'];
+                        if (!category || category.length < 2) {
+                            return { isValid: false, errorMessage: "Please enter a valid category." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
                     true
                 )
             ),
@@ -126,7 +177,97 @@ function createExpenseTrackingFlow() {
                     "Description",
                     "Describe the expense (optional - press enter to skip)",
                     FieldType.TEXT,
-                    null,
+                    (value) => {
+                        if (value && value.length > 200) {
+                            return { isValid: false, errorMessage: "Description too long. Please keep it under 200 characters." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    false
+                )
+            ),
+        ]
+    );
+}
+
+/**
+ * Create the edit profile flow
+ * @returns {ConversationFlow} Edit profile flow configuration
+ */
+function createEditProfileFlow() {
+    return new ConversationFlow(
+        "edit_profile",
+        "Edit user profile",
+        "Let's update your profile information.",
+        "✅ Profile updated successfully!",
+        [
+            new ConversationField(
+                "name",
+                new FormField(
+                    "name",
+                    "Name",
+                    "What is your name? (press enter to keep current)",
+                    FieldType.TEXT,
+                    (value) => {
+                        if (value && value.trim().length > 0 && value.trim().length < 2) {
+                            return { isValid: false, errorMessage: "Name must be at least 2 characters long." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    false
+                )
+            ),
+            new ConversationField(
+                "current_savings",
+                new FormField(
+                    "current_savings",
+                    "Current Savings",
+                    "What is your current savings? (press enter to keep current)",
+                    FieldType.CURRENCY,
+                    (value) => {
+                        if (!value) return { isValid: true, errorMessage: null };
+                        const amount = parseFloat(value);
+                        if (amount < 0) {
+                            return { isValid: false, errorMessage: "Savings cannot be negative." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    false
+                )
+            ),
+            new ConversationField(
+                "monthly_budget",
+                new FormField(
+                    "monthly_budget",
+                    "Monthly Budget",
+                    "What is your monthly budget? (press enter to keep current)",
+                    FieldType.CURRENCY,
+                    (value) => {
+                        if (!value) return { isValid: true, errorMessage: null };
+                        const amount = parseFloat(value);
+                        if (amount <= 0) {
+                            return { isValid: false, errorMessage: "Monthly budget must be positive." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    false
+                )
+            ),
+            new ConversationField(
+                "savings_goal",
+                new FormField(
+                    "savings_goal",
+                    "Savings Goal",
+                    "What is your savings goal amount? (press enter to keep current)",
+                    FieldType.CURRENCY,
+                    (value) => {
+                        if (!value) return { isValid: true, errorMessage: null };
+                        const amount = parseFloat(value);
+                        if (amount <= 0) {
+                            return { isValid: false, errorMessage: "Savings goal must be positive." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
                     false
                 )
             ),
@@ -138,6 +279,7 @@ function createExpenseTrackingFlow() {
 export const FLOWS = {
     expense_setup: createExpenseSetupFlow(),
     expense_tracking: createExpenseTrackingFlow(),
+    edit_profile: createEditProfileFlow(),
 };
 
 // UI Configuration

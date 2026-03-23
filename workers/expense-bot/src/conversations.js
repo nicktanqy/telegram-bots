@@ -154,66 +154,71 @@ export class GenericConversationHandler {
      * @returns {Promise<number>} State code
      */
     async handleInput(kv, userId, input, onCompletion = null) {
-        const flowName = await ConversationContext.getCurrentFlow(kv, userId);
-        const currentStep = await ConversationContext.getCurrentStep(kv, userId);
-        
-        console.debug(`📨 INPUT: User '${userId}' sent: '${input}'`);
-        console.debug(`📍 STATE: Current flow='${flowName}', step=${currentStep}`);
-        
-        if (!flowName || !this.flows[flowName]) {
-            console.error(`❌ ERROR: Invalid flow: ${flowName}`);
-            return 1;
-        }
-        
-        const flow = this.flows[flowName];
-        const step = flow.getStep(currentStep);
-        
-        if (!step) {
-            console.error(`❌ ERROR: Invalid step ${currentStep} in flow ${flowName}`);
-            return 1;
-        }
-        
-        console.debug(`🎯 VALIDATION: Validating input for field '${step.key}'`);
-        
-        // Validate input
-        const validation = step.formField.validate(input);
-        
-        if (!validation.isValid) {
-            console.warning(`❌ VALIDATION FAILED: ${validation.errorMessage}`);
-            return 1;
-        }
-        
-        console.info(`✅ VALIDATION PASSED: Field '${step.key}' accepted value: '${input}'`);
-        
-        // Store the value
-        await ConversationContext.setFlowField(kv, userId, step.key, input);
-        
-        // Check if flow is complete
-        const totalSteps = flow.stepCount();
-        if (currentStep + 1 >= totalSteps) {
-            console.info(`🎉 COMPLETION: Flow '${flowName}' is complete!`);
+        try {
+            const flowName = await ConversationContext.getCurrentFlow(kv, userId);
+            const currentStep = await ConversationContext.getCurrentStep(kv, userId);
             
-            const flowData = await ConversationContext.getFlowData(kv, userId);
-            console.debug(`📦 FLOW_DATA: ${JSON.stringify(flowData)}`);
+            console.debug(`📨 INPUT: User '${userId}' sent: '${input}'`);
+            console.debug(`📍 STATE: Current flow='${flowName}', step=${currentStep}`);
             
-            if (onCompletion) {
-                console.debug(`📞 CALLBACK: Calling on_completion callback`);
-                await onCompletion(kv, userId, flowData);
+            if (!flowName || !this.flows[flowName]) {
+                console.error(`❌ ERROR: Invalid flow: ${flowName}`);
+                return 1;
             }
             
-            await ConversationContext.clearFlow(kv, userId);
-            console.debug(`📤 RESULT: Returning FLOW_COMPLETE signal`);
-            return FLOW_COMPLETE;
+            const flow = this.flows[flowName];
+            const step = flow.getStep(currentStep);
+            
+            if (!step) {
+                console.error(`❌ ERROR: Invalid step ${currentStep} in flow ${flowName}`);
+                return 1;
+            }
+            
+            console.debug(`🎯 VALIDATION: Validating input for field '${step.key}'`);
+            
+            // Validate input
+            const validation = step.formField.validate(input);
+            
+            if (!validation.isValid) {
+                console.warning(`❌ VALIDATION FAILED: ${validation.errorMessage}`);
+                return 1;
+            }
+            
+            console.info(`✅ VALIDATION PASSED: Field '${step.key}' accepted value: '${input}'`);
+            
+            // Store the value
+            await ConversationContext.setFlowField(kv, userId, step.key, input);
+            
+            // Check if flow is complete
+            const totalSteps = flow.stepCount();
+            if (currentStep + 1 >= totalSteps) {
+                console.info(`🎉 COMPLETION: Flow '${flowName}' is complete!`);
+                
+                const flowData = await ConversationContext.getFlowData(kv, userId);
+                console.debug(`📦 FLOW_DATA: ${JSON.stringify(flowData)}`);
+                
+                if (onCompletion) {
+                    console.debug(`📞 CALLBACK: Calling on_completion callback`);
+                    await onCompletion(kv, userId, flowData);
+                }
+                
+                await ConversationContext.clearFlow(kv, userId);
+                console.debug(`📤 RESULT: Returning FLOW_COMPLETE signal`);
+                return FLOW_COMPLETE;
+            }
+            
+            // Move to next step
+            await ConversationContext.advanceStep(kv, userId);
+            const nextStepIdx = await ConversationContext.getCurrentStep(kv, userId);
+            const nextStep = flow.getStep(nextStepIdx);
+            
+            console.debug(`➡️  NEXT_STEP: Prompting for field '${nextStep.key}' (${nextStepIdx + 1}/${totalSteps})`);
+            
+            return 1; // Continue flow
+        } catch (error) {
+            console.error(`❌ ERROR in handleInput: ${error.message}`);
+            return 1;
         }
-        
-        // Move to next step
-        await ConversationContext.advanceStep(kv, userId);
-        const nextStepIdx = await ConversationContext.getCurrentStep(kv, userId);
-        const nextStep = flow.getStep(nextStepIdx);
-        
-        console.debug(`➡️  NEXT_STEP: Prompting for field '${nextStep.key}' (${nextStepIdx + 1}/${totalSteps})`);
-        
-        return 1; // Continue flow
     }
 
     /**

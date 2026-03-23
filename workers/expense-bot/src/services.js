@@ -23,9 +23,9 @@ export class ExpenseService {
             const amount = parseFloat(expenseData.amount || 0);
             console.debug(`  Amount parsed: $${amount.toFixed(2)}`);
             
-            if (amount < 0) {
-                console.warning(`❌ VALIDATION: Amount is negative: $${amount}`);
-                throw new Error("Amount cannot be negative");
+            if (amount <= 0) {
+                console.error(`❌ VALIDATION: Amount must be positive: $${amount}`);
+                throw new Error("Amount must be positive");
             }
             
             const expense = new Expense(
@@ -140,6 +140,21 @@ export class ExpenseService {
             await kv.put(userId, JSON.stringify(userData));
         } catch (error) {
             console.error(`❌ ERROR: Failed to save user data for ${userId}: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Delete user data from KV
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @returns {Promise<void>}
+     */
+    static async deleteUserData(kv, userId) {
+        try {
+            await kv.delete(userId);
+        } catch (error) {
+            console.error(`❌ ERROR: Failed to delete user data for ${userId}: ${error.message}`);
             throw error;
         }
     }

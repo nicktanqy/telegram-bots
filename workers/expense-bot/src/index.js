@@ -91,6 +91,8 @@ export default {
                 responseText = await this.exitFlow(env.USER_DATA, userId, chatId);
             } else if (text === '/cancel') {
                 responseText = await this.cancel(env.USER_DATA, userId, chatId);
+            } else if (text === '/edit_profile') {
+                responseText = await this.editProfile(env.USER_DATA, userId, chatId);
             } else if (text === '/show_data' && userId === DEVELOPER_CHAT_ID.toString()) {
                 responseText = await this.showData(env.USER_DATA, userId, chatId);
             } else {
@@ -118,6 +120,11 @@ export default {
                         
                         if (nextStep) {
                             responseText = nextStep.formField.prompt;
+                        } else {
+                            // No more steps, complete the flow
+                            responseText = flow.completionMessage;
+                            await this.clearFlow(env.USER_DATA, userId);
+                            keyboard = this.createKeyboard(MAIN_MENU_BUTTONS);
                         }
                     }
                 } else {
@@ -269,6 +276,29 @@ export default {
     },
 
     /**
+     * Handle /edit_profile command
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {number} chatId - Chat ID
+     * @returns {Promise<string>} Response text
+     */
+    async editProfile(kv, userId, chatId) {
+        const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+        
+        if (!isInitialized) {
+            return "❌ Please set up your profile first with /start";
+        }
+        
+        const conversationHandler = new GenericConversationHandler(FLOWS);
+        await conversationHandler.startFlow(kv, userId, 'edit_profile');
+        
+        const flow = FLOWS.edit_profile;
+        const firstStep = flow.getStep(0);
+        
+        return `${flow.welcome_message}\n\n${firstStep.formField.prompt}`;
+    },
+
+    /**
      * Handle /show_data command (developer only)
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
@@ -360,6 +390,8 @@ export default {
             return this.onSetupComplete.bind(this);
         } else if (flowName === 'expense_tracking') {
             return this.onExpenseComplete.bind(this);
+        } else if (flowName === 'edit_profile') {
+            return this.onEditProfileComplete.bind(this);
         }
         return null;
     },
@@ -399,6 +431,32 @@ export default {
     },
 
     /**
+     * Handle completion of edit profile flow
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {Object} flowData - Flow data
+     * @returns {Promise<void>}
+     */
+    async onEditProfileComplete(kv, userId, flowData) {
+        console.log(`✅ CALLBACK: Edit profile flow completed for user ${userId}`);
+        console.log(`📦 PROFILE_DATA: ${JSON.stringify(flowData)}`);
+        
+        try {
+            const userData = await ExpenseService.getUserData(kv, userId);
+            // Update only the fields that were provided
+            if (flowData.name && flowData.name.trim().length > 0) userData.name = flowData.name.trim();
+            if (flowData.current_savings) userData.currentSavings = parseFloat(flowData.current_savings);
+            if (flowData.monthly_budget) userData.monthlyBudget = parseFloat(flowData.monthly_budget);
+            if (flowData.savings_goal) userData.savingsGoal = parseFloat(flowData.savings_goal);
+            
+            await ExpenseService.saveUserData(kv, userId, userData);
+            console.log(`✅ SAVED: Profile updated successfully`);
+        } catch (error) {
+            console.error(`❌ ERROR: Failed to update profile: ${error.message}`);
+        }
+    },
+
+    /**
      * Send message to Telegram
      * @param {Object} env - Environment variables
      * @param {number} chatId - Chat ID
@@ -427,16 +485,21 @@ export default {
             };
         }
         
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(body)
-        });
-        
-        if (!response.ok) {
-            throw new Error(`Telegram API error: ${response.status} ${response.statusText}`);
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Telegram API error: ${response.status} ${response.statusText}`);
+            }
+        } catch (error) {
+            console.error(`❌ ERROR: Failed to send message: ${error.message}`);
+            throw error;
         }
     },
 
