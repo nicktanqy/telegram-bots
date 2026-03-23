@@ -153,7 +153,7 @@ export class ProfileService {
      * Initialize user profile with setup data
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
-     * @param {Object} profileData - Profile data with age, current_savings, monthly_budget, savings_goal, goal_age
+     * @param {Object} profileData - Profile data with name, age, current_savings, monthly_budget, savings_goal, goal_age
      * @returns {Promise<void>}
      */
     static async initializeProfile(kv, userId, profileData) {
@@ -161,6 +161,9 @@ export class ProfileService {
         
         try {
             const userData = await ExpenseService.getUserData(kv, userId);
+            
+            userData.name = profileData.name || "";
+            console.debug(`  Name: ${userData.name}`);
             
             userData.age = parseInt(profileData.age || 0);
             console.debug(`  Age: ${userData.age}`);
@@ -234,6 +237,7 @@ export class ProfileService {
         const summary = `
 📊 **Your Financial Profile**
 ━━━━━━━━━━━━━━━━
+Name: ${userData.name || 'User'}
 Age: ${userData.age}
 Current Savings: $${currentSavings.toFixed(2)}
 Monthly Budget: $${monthlyBudget.toFixed(2)}

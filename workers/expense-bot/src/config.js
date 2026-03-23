@@ -17,6 +17,17 @@ function createExpenseSetupFlow() {
         "✅ Great! Your profile is ready. I'll now help you track your finances.",
         [
             new ConversationField(
+                "name",
+                new FormField(
+                    "name",
+                    "Name",
+                    "What is your name?",
+                    FieldType.TEXT,
+                    null,
+                    true
+                )
+            ),
+            new ConversationField(
                 "age",
                 new FormField(
                     "age",

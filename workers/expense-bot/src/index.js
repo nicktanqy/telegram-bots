@@ -156,8 +156,10 @@ export default {
         const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
         
         if (isInitialized) {
+            const userData = await ExpenseService.getUserData(kv, userId);
+            const userName = userData.name || 'User';
             const summary = await ProfileService.getProfileSummary(kv, userId);
-            return `👋 Welcome back!\n\n${summary}\n\nWhat would you like to do?`;
+            return `👋 Welcome back, ${userName}!\n\n${summary}\n\nWhat would you like to do?`;
         } else {
             const welcomeText = `🤖 **Budget Billy** - Your Personal Finance Assistant\n\nHi! I'm here to help you track expenses and manage your budget.\n\nLet's start by setting up your profile.`;
             
