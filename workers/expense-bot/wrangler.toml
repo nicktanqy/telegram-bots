@@ -1,0 +1,47 @@
+# Budget Billy Expense Tracker - Cloudflare Workers Configuration
+
+name = "expense-bot-workers"
+main = "src/index.js"
+compatibility_date = "2025-03-13"
+
+# Build configuration
+[build]
+command = "echo 'No build step required for ES modules'"
+watch_dir = "src"
+
+# KV Namespace bindings for data storage (top level)
+[[kv_namespaces]]
+binding = "USER_DATA"
+id = "9616e746817c4ab2838815c2b8f42249"
+
+[[kv_namespaces]]
+binding = "BOT_CONFIG"
+id = "019666d2c8f546ea883a04536951b568"
+
+# Development environment
+[env.development]
+# Development environment variables will be set via wrangler secret commands
+nodejs_compat = true
+
+# KV Namespace bindings for development environment (required for inheritance)
+[[env.development.kv_namespaces]]
+binding = "USER_DATA"
+id = "9616e746817c4ab2838815c2b8f42249"
+
+[[env.development.kv_namespaces]]
+binding = "BOT_CONFIG"
+id = "019666d2c8f546ea883a04536951b568"
+
+# Production environment
+[env.production]
+# Production environment variables will be set via wrangler secret commands
+nodejs_compat = true
+
+# KV Namespace bindings for production environment (required for inheritance)
+[[env.production.kv_namespaces]]
+binding = "USER_DATA"
+id = "9616e746817c4ab2838815c2b8f42249"
+
+[[env.production.kv_namespaces]]
+binding = "BOT_CONFIG"
+id = "019666d2c8f546ea883a04536951b568"

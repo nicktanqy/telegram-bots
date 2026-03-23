@@ -1,0 +1,248 @@
+# Budget Billy Expense Tracker - Cloudflare Workers
+
+A stateless Telegram bot for expense tracking, migrated from Python to Cloudflare Workers with Cloudflare KV for data storage.
+
+## Features
+
+- ✅ **Stateless Architecture**: No persistent memory, uses Cloudflare KV for data storage
+- 🏗️ **Modern ES Modules**: Built with modern JavaScript ES6+ modules
+- 🔒 **Production Ready**: Secure configuration for production deployment
+- 🚀 **Cloudflare Workers**: Fast, global deployment with minimal latency
+- 💾 **KV Storage**: Persistent data storage using Cloudflare KV
+- 🤖 **Conversation Flows**: Multi-step conversation handling
+- 📊 **Expense Tracking**: Track expenses by category with detailed reporting
+- 📈 **Financial Profiles**: User profiles with savings goals and budget tracking
+
+## Architecture
+
+### State Migration
+- **Before**: Python bot using PicklePersistence for local storage
+- **After**: Cloudflare Workers using KV namespaces for distributed storage
+
+### Data Storage
+- **USER_DATA**: User profiles, expenses, and conversation state
+- **BOT_CONFIG**: Bot configuration and settings
+
+### Conversation Management
+- **ConversationContext**: Manages conversation state in KV
+- **GenericConversationHandler**: Handles multi-step flows
+- **Flow Completion Callbacks**: Custom handlers for different flows
+
+## Installation
+
+### Prerequisites
+
+1. **Cloudflare Account**: Sign up at [cloudflare.com](https://cloudflare.com)
+2. **Wrangler CLI**: Install the Cloudflare Workers CLI
+   ```bash
+   npm install -g wrangler
+   ```
+3. **Telegram Bot Token**: Create a bot via [@BotFather](https://t.me/BotFather)
+
+### Setup
+
+1. **Clone and Install Dependencies**
+   ```bash
+   cd workers/expense-bot
+   npm install
+   ```
+
+2. **Configure Wrangler**
+   ```bash
+   wrangler login
+   wrangler init --site
+   ```
+
+3. **Create KV Namespaces**
+   ```bash
+   # Create USER_DATA namespace
+   wrangler kv:namespace create "USER_DATA"
+   
+   # Create BOT_CONFIG namespace  
+   wrangler kv:namespace create "BOT_CONFIG"
+   ```
+
+4. **Update wrangler.toml**
+   Replace the KV IDs in `wrangler.toml` with your actual namespace IDs:
+   ```toml
+   [[kv_namespaces]]
+   binding = "USER_DATA"
+   id = "your-user-data-kv-id-here"
+
+   [[kv_namespaces]]
+   binding = "BOT_CONFIG"
+   id = "your-bot-config-kv-id-here"
+   ```
+
+5. **Set Environment Variables**
+   ```bash
+   # Set your Telegram bot token
+   wrangler secret put BOT_TOKEN
+   
+   # Set developer chat ID (optional, for debug commands)
+   wrangler secret put DEVELOPER_CHAT_ID
+   ```
+
+## Deployment
+
+### Development
+```bash
+# Start local development server
+wrangler dev
+```
+
+### Production
+```bash
+# Deploy to Cloudflare Workers
+wrangler publish
+```
+
+### Environment-Specific Deployment
+```bash
+# Deploy to production environment
+wrangler publish --env production
+
+# Deploy to staging environment  
+wrangler publish --env staging
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `BOT_TOKEN` | Telegram bot token | ✅ Yes |
+| `DEVELOPER_CHAT_ID` | Developer user ID for debug commands | Optional |
+
+### KV Namespaces
+
+| Namespace | Purpose | Binding |
+|-----------|---------|---------|
+| `USER_DATA` | User profiles, expenses, conversation state | `USER_DATA` |
+| `BOT_CONFIG` | Bot configuration and settings | `BOT_CONFIG` |
+
+## Usage
+
+### Telegram Commands
+
+- `/start` - Initialize bot and setup profile
+- `/menu` - Show main menu
+- `/stats` - View financial profile summary
+- `/expense` - Add new expense
+- `/exit` - Exit current conversation flow
+- `/cancel` - Cancel current operation
+- `/show_data` - Debug command (developer only)
+
+### Conversation Flows
+
+1. **Expense Setup Flow** (`/start` for new users)
+   - Age
+   - Current savings
+   - Monthly budget
+   - Savings goal
+   - Goal age
+
+2. **Expense Tracking Flow** (`/expense`)
+   - Expense amount
+   - Category
+   - Description (optional)
+
+## Security Features
+
+- 🔐 **Environment Variables**: Sensitive data stored as secrets
+- 🛡️ **KV Access Control**: Namespaced data storage
+- 🔒 **Developer Commands**: Restricted to authorized users
+- 📡 **HTTPS Only**: All communications encrypted
+- 🚫 **Input Validation**: Comprehensive validation for all inputs
+
+## File Structure
+
+```
+workers/expense-bot/
+├── src/
+│   ├── index.js          # Main bot application
+│   ├── models.js         # Data models (Expense, FormField, etc.)
+│   ├── services.js       # Business logic services
+│   ├── conversations.js  # Conversation handling framework
+│   └── config.js         # Bot configuration and flows
+├── package.json          # Dependencies and scripts
+├── wrangler.toml         # Cloudflare Workers configuration
+└── README.md            # This file
+```
+
+## Migration Notes
+
+### From Python to JavaScript
+
+1. **Data Models**: Converted Python classes to JavaScript classes with similar structure
+2. **Services**: Maintained same API but adapted for async/await patterns
+3. **Conversation Handler**: Preserved state management logic with KV storage
+4. **Error Handling**: Enhanced with proper async error handling
+
+### State Management Changes
+
+- **Before**: `context.user_data` (in-memory persistence)
+- **After**: `kv.get()/kv.put()` (distributed KV storage)
+- **Conversation State**: Stored in `${userId}:context` keys
+- **User Data**: Stored in `${userId}` keys
+
+### API Changes
+
+- **Telegram Integration**: Uses fetch API instead of python-telegram-bot
+- **Environment Variables**: Uses `env` object instead of `os.getenv()`
+- **Logging**: Uses `console.log()` instead of Python logging module
+
+## Troubleshooting
+
+### Common Issues
+
+1. **KV Namespace Not Found**
+   ```
+   Error: KV namespace not found
+   ```
+   **Solution**: Ensure KV namespaces are created and IDs are correct in `wrangler.toml`
+
+2. **Bot Token Missing**
+   ```
+   Error: BOT_TOKEN environment variable is required
+   ```
+   **Solution**: Set the bot token using `wrangler secret put BOT_TOKEN`
+
+3. **CORS Issues**
+   ```
+   CORS policy blocked request
+   ```
+   **Solution**: Ensure proper headers are set in response
+
+### Debug Commands
+
+- Use `/show_data` to view user data (requires developer access)
+- Check Cloudflare Workers logs in dashboard
+- Use `wrangler dev` for local debugging
+
+## Performance
+
+- **Cold Start**: < 100ms (Cloudflare Workers)
+- **KV Latency**: < 10ms (global edge network)
+- **Memory Usage**: Minimal (stateless design)
+- **Scalability**: Automatic scaling with Cloudflare network
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## License
+
+MIT License - see LICENSE file for details.
+
+## Support
+
+For issues and questions:
+- Create a GitHub issue
+- Check Cloudflare Workers documentation
+- Review Telegram Bot API documentation

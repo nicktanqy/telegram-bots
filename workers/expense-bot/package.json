@@ -1,0 +1,33 @@
+{
+  "name": "expense-bot-workers",
+  "version": "1.0.0",
+  "description": "Budget Billy expense tracker telegram bot migrated to Cloudflare Workers",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "publish": "wrangler publish",
+    "test": "node scripts/test-bot.js",
+    "setup": "node scripts/setup-kv.js",
+    "migrate": "node scripts/migrate-data.js"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "expense",
+    "tracker",
+    "cloudflare",
+    "workers"
+  ],
+  "author": "nicktanqy",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "node-telegram-bot-api": "^0.67.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250313.0",
+    "wrangler": "^4.76.0"
+  }
+}
