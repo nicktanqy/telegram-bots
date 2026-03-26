@@ -45,3 +45,7 @@ id = "9616e746817c4ab2838815c2b8f42249"
 [[env.production.kv_namespaces]]
 binding = "BOT_CONFIG"
 id = "019666d2c8f546ea883a04536951b568"
+
+# Define cron triggers for scheduled tasks
+[[triggers]]
+crons = ["0 9 1 * *"]  # Run at 9:00 AM on the 1st of every month

@@ -117,6 +117,40 @@ function createExpenseSetupFlow() {
                     true
                 )
             ),
+            new ConversationField(
+                "monthly_cash_income",
+                new FormField(
+                    "monthly_cash_income",
+                    "Monthly Cash Income",
+                    "What is your monthly cash income?",
+                    FieldType.CURRENCY,
+                    (value) => {
+                        const amount = parseFloat(value);
+                        if (amount <= 0) {
+                            return { isValid: false, errorMessage: "Monthly cash income must be positive." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    true
+                )
+            ),
+            new ConversationField(
+                "monthly_savings_goal",
+                new FormField(
+                    "monthly_savings_goal",
+                    "Monthly Savings Goal",
+                    "How much do you want to save each month?",
+                    FieldType.CURRENCY,
+                    (value) => {
+                        const amount = parseFloat(value);
+                        if (amount < 0) {
+                            return { isValid: false, errorMessage: "Monthly savings goal cannot be negative." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    true
+                )
+            ),
         ]
     );
 }
@@ -265,6 +299,42 @@ function createEditProfileFlow() {
                         const amount = parseFloat(value);
                         if (amount <= 0) {
                             return { isValid: false, errorMessage: "Savings goal must be positive." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    false
+                )
+            ),
+            new ConversationField(
+                "monthly_cash_income",
+                new FormField(
+                    "monthly_cash_income",
+                    "Monthly Cash Income",
+                    "What is your monthly cash income? (press enter to keep current)",
+                    FieldType.CURRENCY,
+                    (value) => {
+                        if (!value) return { isValid: true, errorMessage: null };
+                        const amount = parseFloat(value);
+                        if (amount <= 0) {
+                            return { isValid: false, errorMessage: "Monthly cash income must be positive." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    false
+                )
+            ),
+            new ConversationField(
+                "monthly_savings_goal",
+                new FormField(
+                    "monthly_savings_goal",
+                    "Monthly Savings Goal",
+                    "What is your monthly savings goal? (press enter to keep current)",
+                    FieldType.CURRENCY,
+                    (value) => {
+                        if (!value) return { isValid: true, errorMessage: null };
+                        const amount = parseFloat(value);
+                        if (amount < 0) {
+                            return { isValid: false, errorMessage: "Monthly savings goal cannot be negative." };
                         }
                         return { isValid: true, errorMessage: null };
                     },

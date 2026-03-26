@@ -32,6 +32,11 @@ export default {
                 return await this.handleWebhook(request, env);
             }
             
+            // Handle scheduled tasks
+            if (url.pathname === '/scheduled') {
+                return await this.handleScheduled(request, env);
+            }
+            
             // Handle other routes
             if (url.pathname === '/') {
                 return new Response('Budget Billy Expense Tracker Bot is running!', {
@@ -44,6 +49,27 @@ export default {
             
         } catch (error) {
             console.error('❌ ERROR in fetch:', error);
+            return new Response('Internal Server Error', { status: 500 });
+        }
+    },
+
+    /**
+     * Handle scheduled tasks (cron triggers)
+     * @param {Request} request - Incoming HTTP request
+     * @param {Object} env - Environment variables
+     * @returns {Promise<Response>} HTTP response
+     */
+    async handleScheduled(request, env) {
+        try {
+            console.log('⏰ SCHEDULED: Processing scheduled task');
+            
+            // Send monthly reports to all users
+            await ProfileService.sendMonthlyReports(env);
+            
+            return new Response('✅ Scheduled task completed', { status: 200 });
+            
+        } catch (error) {
+            console.error('❌ ERROR in handleScheduled:', error);
             return new Response('Internal Server Error', { status: 500 });
         }
     },
@@ -93,6 +119,14 @@ export default {
                 responseText = await this.cancel(env.USER_DATA, userId, chatId);
             } else if (text === '/edit_profile') {
                 responseText = await this.editProfile(env.USER_DATA, userId, chatId);
+            } else if (text === '/progress') {
+                responseText = await this.progress(env.USER_DATA, userId, chatId);
+            } else if (text === '/breakdown') {
+                responseText = await this.breakdown(env.USER_DATA, userId, chatId);
+            } else if (text === '/monthly-report' && userId === DEVELOPER_CHAT_ID.toString()) {
+                responseText = await this.monthlyReport(env, userId, chatId);
+            } else if (text.startsWith('/add ') && text.length > 5) {
+                responseText = await this.quickAdd(env.USER_DATA, userId, chatId, text.substring(5));
             } else if (text === '/show_data' && userId === DEVELOPER_CHAT_ID.toString()) {
                 responseText = await this.showData(env.USER_DATA, userId, chatId);
             } else {
@@ -342,6 +376,167 @@ Your expense has been automatically added to your tracking!`;
     },
 
     /**
+     * Handle /progress command
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {number} chatId - Chat ID
+     * @returns {Promise<string>} Response text
+     */
+    async progress(kv, userId, chatId) {
+        const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+        
+        if (!isInitialized) {
+            return "❌ Please set up your profile first with /start";
+        }
+        
+        const progress = await ProfileService.getMonthlySavingsProgress(kv, userId);
+        const totalExpenses = await ProfileService.getTotalMonthlyExpenses(kv, userId);
+        
+        const now = new Date();
+        const monthName = now.toLocaleString('default', { month: 'long' });
+        
+        let message = `📊 **Monthly Progress - ${monthName}**
+━━━━━━━━━━━━━━━━
+Total Expenses: $${totalExpenses.toFixed(2)}
+Monthly Income: $${progress.monthlyCashIncome.toFixed(2)}
+Monthly Savings: $${progress.monthlySavings.toFixed(2)}
+Budget Remaining: $${progress.budgetRemaining.toFixed(2)}`;
+        
+        if (progress.monthlySavingsGoal > 0) {
+            message += `
+Monthly Savings Goal: $${progress.monthlySavingsGoal.toFixed(2)}
+Progress: ${progress.monthlySavingsProgress.toFixed(1)}%`;
+        }
+        
+        // Check for budget alerts
+        const alert = await ProfileService.checkBudgetAlert(kv, userId);
+        if (alert) {
+            message += `\n\n${alert.message}`;
+        }
+        
+        return message;
+    },
+
+    /**
+     * Handle /breakdown command
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {number} chatId - Chat ID
+     * @returns {Promise<string>} Response text
+     */
+    async breakdown(kv, userId, chatId) {
+        const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+        
+        if (!isInitialized) {
+            return "❌ Please set up your profile first with /start";
+        }
+        
+        const expensesByCategory = await ProfileService.getMonthlyExpensesByCategory(kv, userId);
+        const totalExpenses = await ProfileService.getTotalMonthlyExpenses(kv, userId);
+        
+        if (!expensesByCategory || Object.keys(expensesByCategory).length === 0) {
+            return "📋 No expenses recorded for this month yet.";
+        }
+        
+        const now = new Date();
+        const monthName = now.toLocaleString('default', { month: 'long' });
+        
+        let message = `📊 **Expense Breakdown - ${monthName}**
+━━━━━━━━━━━━━━━━
+Total Expenses: $${totalExpenses.toFixed(2)}`;
+        
+        for (const [category, expenses] of Object.entries(expensesByCategory)) {
+            const categoryTotal = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+            const percentage = totalExpenses > 0 ? (categoryTotal / totalExpenses * 100) : 0;
+            
+            message += `\n\n**${category.charAt(0).toUpperCase() + category.slice(1)}** ($${categoryTotal.toFixed(2)} - ${percentage.toFixed(1)}%)`;
+            
+            // Show last 3 expenses in this category
+            const sortedExpenses = expenses
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                .slice(0, 3);
+            
+            for (const expense of sortedExpenses) {
+                const desc = expense.description ? ` - ${expense.description}` : "";
+                message += `\n  • $${expense.amount.toFixed(2)} at ${expense.merchant}${desc}`;
+            }
+        }
+        
+        return message;
+    },
+
+    /**
+     * Handle /monthly-report command (admin only)
+     * @param {Object} env - Environment variables
+     * @param {string} userId - User ID
+     * @param {number} chatId - Chat ID
+     * @returns {Promise<string>} Response text
+     */
+    async monthlyReport(env, userId, chatId) {
+        if (userId !== DEVELOPER_CHAT_ID.toString()) {
+            return "❌ Not authorized.";
+        }
+        
+        try {
+            // This would be called by a cron job to send reports to all users
+            // For now, just return a confirmation message
+            return "✅ Monthly reports will be sent to all users.";
+        } catch (error) {
+            console.error(`❌ ERROR: Failed to send monthly reports: ${error.message}`);
+            return "❌ Error sending monthly reports.";
+        }
+    },
+
+    /**
+     * Handle quick add command (e.g., /add 15 coffee)
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {number} chatId - Chat ID
+     * @param {string} command - The command text (e.g., "15 coffee")
+     * @returns {Promise<string>} Response text
+     */
+    async quickAdd(kv, userId, chatId, command) {
+        const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+        
+        if (!isInitialized) {
+            return "❌ Please set up your profile first with /start";
+        }
+        
+        // Parse command like "15 coffee" or "15.50 lunch at mcdonalds"
+        const match = command.match(/^(\d+(?:\.\d{1,2})?)\s+(.+)$/);
+        if (!match) {
+            return "❌ Invalid format. Use: /add [amount] [description]\nExample: /add 15 coffee";
+        }
+        
+        const [_, amountStr, description] = match;
+        const amount = parseFloat(amountStr);
+        
+        if (amount <= 0) {
+            return "❌ Amount must be positive.";
+        }
+        
+        try {
+            const expenseData = {
+                amount: amount,
+                merchant: description.split(' at ')[1] || description.split(' ')[0] || "Unknown",
+                description: description
+            };
+            
+            const expense = await ExpenseService.addExpense(kv, userId, expenseData);
+            
+            return `✅ **Expense Added**
+━━━━━━━━━━━━━━━━
+Amount: $${expense.amount.toFixed(2)}
+Description: ${expense.description}
+Merchant: ${expense.merchant}`;
+            
+        } catch (error) {
+            console.error(`❌ ERROR: Failed to add quick expense: ${error.message}`);
+            return `❌ Error adding expense: ${error.message}`;
+        }
+    },
+
+    /**
      * Handle /show_data command (developer only)
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
@@ -534,6 +729,8 @@ Your expense has been automatically added to your tracking!`;
             if (flowData.current_savings) userData.currentSavings = parseFloat(flowData.current_savings);
             if (flowData.monthly_budget) userData.monthlyBudget = parseFloat(flowData.monthly_budget);
             if (flowData.savings_goal) userData.savingsGoal = parseFloat(flowData.savings_goal);
+            if (flowData.monthly_cash_income) userData.monthlyCashIncome = parseFloat(flowData.monthly_cash_income);
+            if (flowData.monthly_savings_goal) userData.monthlySavingsGoal = parseFloat(flowData.monthly_savings_goal);
             
             await ExpenseService.saveUserData(kv, userId, userData);
             console.log(`✅ SAVED: Profile updated successfully`);
