@@ -180,7 +180,7 @@ export class GenericConversationHandler {
             const validation = step.formField.validate(input);
             
             if (!validation.isValid) {
-                console.warning(`❌ VALIDATION FAILED: ${validation.errorMessage}`);
+                console.warn(`❌ VALIDATION FAILED: ${validation.errorMessage}`);
                 return 1;
             }
             

@@ -21,7 +21,9 @@ id = "019666d2c8f546ea883a04536951b568"
 # Development environment
 [env.development]
 # Development environment variables will be set via wrangler secret commands
-nodejs_compat = true
+
+# Add BOT_TOKEN for local development
+vars = { BOT_TOKEN = "7883050713:AAExYcUfhEj-n_d9ipFZ2ZZZ5qPc-eIVHVU" }
 
 # KV Namespace bindings for development environment (required for inheritance)
 [[env.development.kv_namespaces]]
@@ -35,7 +37,6 @@ id = "019666d2c8f546ea883a04536951b568"
 # Production environment
 [env.production]
 # Production environment variables will be set via wrangler secret commands
-nodejs_compat = true
 
 # KV Namespace bindings for production environment (required for inheritance)
 [[env.production.kv_namespaces]]
@@ -49,3 +50,18 @@ id = "019666d2c8f546ea883a04536951b568"
 # Define cron triggers for scheduled tasks
 [[triggers]]
 crons = ["0 9 1 * *"]  # Run at 9:00 AM on the 1st of every month
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1

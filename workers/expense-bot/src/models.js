@@ -105,7 +105,7 @@ export class Expense {
         this.amount = parseFloat(amount);
         this.merchant = merchant.toLowerCase();
         this.description = description;
-        this.timestamp = timestamp || new Date();
+        this.timestamp = timestamp || new Date().toISOString();
     }
 
     toObject() {
@@ -113,7 +113,7 @@ export class Expense {
             amount: this.amount,
             merchant: this.merchant,
             description: this.description,
-            timestamp: this.timestamp.toISOString(),
+            timestamp: this.timestamp,
         };
     }
 
@@ -122,7 +122,7 @@ export class Expense {
             obj.amount,
             obj.merchant,
             obj.description,
-            new Date(obj.timestamp)
+            obj.timestamp
         );
     }
 }

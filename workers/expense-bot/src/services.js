@@ -4,7 +4,6 @@
  */
 
 import { Expense } from './models.js';
-import { startOfMonth, endOfMonth, isWithinInterval, format } from 'date-fns';
 
 /**
  * Parse Apple Pay transaction message.
@@ -389,14 +388,14 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
      * @returns {Promise<Expense[]>} Array of expenses for current month
      */
     static async getMonthlyExpenses(kv, userId) {
-        const expenses = await this.getExpenses(kv, userId);
+        const expenses = await ExpenseService.getExpenses(kv, userId);
         const now = new Date();
-        const start = startOfMonth(now);
-        const end = endOfMonth(now);
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
         
         return expenses.filter(expense => {
             const expenseDate = new Date(expense.timestamp);
-            return isWithinInterval(expenseDate, { start, end });
+            return expenseDate.getFullYear() === currentYear && expenseDate.getMonth() === currentMonth;
         });
     }
 
@@ -407,7 +406,7 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
      * @returns {Promise<Object>} Expenses grouped by category
      */
     static async getMonthlyExpensesByCategory(kv, userId) {
-        const monthlyExpenses = await this.getMonthlyExpenses(kv, userId);
+        const monthlyExpenses = await ProfileService.getMonthlyExpenses(kv, userId);
         const grouped = {};
         
         monthlyExpenses.forEach(expense => {
@@ -448,7 +447,7 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
      * @returns {Promise<number>} Total expenses for current month
      */
     static async getTotalMonthlyExpenses(kv, userId) {
-        const monthlyExpenses = await this.getMonthlyExpenses(kv, userId);
+        const monthlyExpenses = await ProfileService.getMonthlyExpenses(kv, userId);
         return monthlyExpenses.reduce((total, expense) => total + expense.amount, 0);
     }
 
@@ -464,7 +463,7 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
         const monthlyCashIncome = userData.monthlyCashIncome || 0;
         const monthlySavingsGoal = userData.monthlySavingsGoal || 0;
         
-        const totalMonthlyExpenses = await this.getTotalMonthlyExpenses(kv, userId);
+        const totalMonthlyExpenses = await ProfileService.getTotalMonthlyExpenses(kv, userId);
         const monthlySavings = monthlyCashIncome - totalMonthlyExpenses;
         
         const budgetRemaining = monthlyBudget - totalMonthlyExpenses;
@@ -489,7 +488,7 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
      * @returns {Promise<Object|null>} Alert information or null if no alert needed
      */
     static async checkBudgetAlert(kv, userId) {
-        const progress = await this.getMonthlySavingsProgress(kv, userId);
+        const progress = await ProfileService.getMonthlySavingsProgress(kv, userId);
         
         if (progress.budgetRemaining < 0) {
             return {
@@ -520,12 +519,12 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
             const chatId = parseInt(userId);
             const now = new Date();
             const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            const monthName = format(lastMonth, 'MMMM yyyy');
+            const monthName = lastMonth.toLocaleString('default', { month: 'long' }) + ' ' + lastMonth.getFullYear();
             
-            const monthlyExpenses = await this.getMonthlyExpenses(env.USER_DATA, userId);
+            const monthlyExpenses = await ProfileService.getMonthlyExpenses(env.USER_DATA, userId);
             const totalExpenses = monthlyExpenses.reduce((total, expense) => total + expense.amount, 0);
             
-            const expensesByCategory = await this.getMonthlyExpensesByCategory(env.USER_DATA, userId);
+            const expensesByCategory = await ProfileService.getMonthlyExpensesByCategory(env.USER_DATA, userId);
             
             let report = `📊 **Monthly Report - ${monthName}**
 ━━━━━━━━━━━━━━━━

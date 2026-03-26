@@ -98,6 +98,12 @@ export default {
             const text = message.text || '';
             const chatId = message.chat.id;
             
+            // Check if KV namespaces are available
+            if (!env.USER_DATA) {
+                console.error('❌ ERROR: USER_DATA KV namespace not available');
+                return new Response('KV namespace not configured', { status: 500 });
+            }
+            
             // Initialize conversation handler
             const conversationHandler = new GenericConversationHandler(FLOWS);
             
