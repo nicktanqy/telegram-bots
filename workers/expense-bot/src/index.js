@@ -3,7 +3,7 @@
  * Migrated from Python to JavaScript for Cloudflare Workers
  */
 
-import { ExpenseService, ProfileService } from './services.js';
+import { ExpenseService, ProfileService, parseApplePayMessage } from './services.js';
 import { GenericConversationHandler, FLOW_COMPLETE } from './conversations.js';
 import { FLOWS, MAIN_MENU_BUTTONS, DEVELOPER_CHAT_ID } from './config.js';
 
@@ -96,43 +96,86 @@ export default {
             } else if (text === '/show_data' && userId === DEVELOPER_CHAT_ID.toString()) {
                 responseText = await this.showData(env.USER_DATA, userId, chatId);
             } else {
-                // Handle menu choices and conversation input
-                const currentFlow = await this.getCurrentFlow(env.USER_DATA, userId);
-                
-                if (currentFlow) {
-                    // Handle conversation input
-                    const result = await conversationHandler.handleInput(
-                        env.USER_DATA,
-                        userId,
-                        text,
-                        this.getCompletionCallback(currentFlow)
-                    );
+                // Check for Apple Pay transaction message even during active flows
+                const applePayData = parseApplePayMessage(text);
+                if (applePayData && Object.keys(applePayData).length > 0) {
+                    const currentFlow = await this.getCurrentFlow(env.USER_DATA, userId);
+                    console.log(`🍎 APPLE_PAY: Detected Apple Pay transaction during flow '${currentFlow}' from user '${userId}'`);
+                    console.log(`📦 APPLE_PAY_DATA: ${JSON.stringify(applePayData)}`);
                     
-                    if (result === FLOW_COMPLETE) {
-                        // Flow completed, show main menu
-                        responseText = '✅ Operation completed successfully!';
-                        keyboard = this.createKeyboard(MAIN_MENU_BUTTONS);
+                    // Ensure user profile is initialized
+                    const isInitialized = await ProfileService.isProfileInitialized(env.USER_DATA, userId);
+                    if (!isInitialized) {
+                        console.log(`⚠️  INFO: User not initialized, cannot process Apple Pay transaction`);
+                        responseText = "❌ Please set up your profile first with /start before using Apple Pay integration.";
                     } else {
-                        // Continue flow - get next prompt
-                        const flow = FLOWS[currentFlow];
-                        const currentStep = await this.getCurrentStep(env.USER_DATA, userId);
-                        const nextStep = flow.getStep(currentStep);
-                        
-                        if (nextStep) {
-                            responseText = nextStep.formField.prompt;
-                        } else {
-                            // No more steps, complete the flow
-                            responseText = flow.completionMessage;
-                            await this.clearFlow(env.USER_DATA, userId);
-                            keyboard = this.createKeyboard(MAIN_MENU_BUTTONS);
+                        try {
+                            // Create expense data for the service
+                            const expenseData = {
+                                amount: applePayData.amount,
+                                merchant: applePayData.merchant,
+                                description: `Apple Pay transaction on ${applePayData.date}`
+                            };
+                            
+                            // Add the expense
+                            const expense = await ExpenseService.addExpense(env.USER_DATA, userId, expenseData);
+                            console.log(`✅ APPLE_PAY_SAVED: Expense recorded during flow - $${expense.amount} at ${applePayData.merchant}`);
+                            
+                            // Send confirmation message
+                            const confirmationMsg = `✅ **Apple Pay Transaction Recorded**
+━━━━━━━━━━━━━━━━
+Amount: $${expense.amount.toFixed(2)}
+Merchant: ${applePayData.merchant}
+Date: ${applePayData.date}
+Description: ${expense.description}
+
+Your expense has been automatically added to your tracking!`;
+                            
+                            responseText = confirmationMsg;
+                        } catch (error) {
+                            console.error(`❌ APPLE_PAY_ERROR: Failed to save Apple Pay expense during flow: ${error.message}`);
+                            responseText = `❌ Error recording Apple Pay transaction: ${error.message}`;
                         }
                     }
                 } else {
-                    // Handle main menu choices
-                    responseText = await this.handleMenuChoice(env.USER_DATA, userId, chatId, text);
-                    if (responseText === 'main_menu') {
-                        responseText = 'What would you like to do?';
-                        keyboard = this.createKeyboard(MAIN_MENU_BUTTONS);
+                    // Handle menu choices and conversation input
+                    const currentFlow = await this.getCurrentFlow(env.USER_DATA, userId);
+                    
+                    if (currentFlow) {
+                        // Handle conversation input
+                        const result = await conversationHandler.handleInput(
+                            env.USER_DATA,
+                            userId,
+                            text,
+                            this.getCompletionCallback(currentFlow)
+                        );
+                        
+                        if (result === FLOW_COMPLETE) {
+                            // Flow completed, show main menu
+                            responseText = '✅ Operation completed successfully!';
+                            keyboard = this.createKeyboard(MAIN_MENU_BUTTONS);
+                        } else {
+                            // Continue flow - get next prompt
+                            const flow = FLOWS[currentFlow];
+                            const currentStep = await this.getCurrentStep(env.USER_DATA, userId);
+                            const nextStep = flow.getStep(currentStep);
+                            
+                            if (nextStep) {
+                                responseText = nextStep.formField.prompt;
+                            } else {
+                                // No more steps, complete the flow
+                                responseText = flow.completionMessage;
+                                await this.clearFlow(env.USER_DATA, userId);
+                                keyboard = this.createKeyboard(MAIN_MENU_BUTTONS);
+                            }
+                        }
+                    } else {
+                        // Handle main menu choices
+                        responseText = await this.handleMenuChoice(env.USER_DATA, userId, chatId, text);
+                        if (responseText === 'main_menu') {
+                            responseText = 'What would you like to do?';
+                            keyboard = this.createKeyboard(MAIN_MENU_BUTTONS);
+                        }
                     }
                 }
             }
@@ -325,6 +368,49 @@ export default {
     async handleMenuChoice(kv, userId, chatId, choice) {
         console.log(`🎯 MENU: User '${userId}' selected: '${choice}'`);
         
+        // Check for Apple Pay transaction message
+        const applePayData = parseApplePayMessage(choice);
+        if (applePayData && Object.keys(applePayData).length > 0) {
+            console.log(`🍎 APPLE_PAY: Detected Apple Pay transaction from user '${userId}'`);
+            console.log(`📦 APPLE_PAY_DATA: ${JSON.stringify(applePayData)}`);
+            
+            // Ensure user profile is initialized
+            const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+            if (!isInitialized) {
+                console.log(`⚠️  INFO: User not initialized, cannot process Apple Pay transaction`);
+                return "❌ Please set up your profile first with /start before using Apple Pay integration.";
+            }
+            
+            try {
+                // Create expense data for the service
+                const expenseData = {
+                    amount: applePayData.amount,
+                    merchant: applePayData.merchant,
+                    description: `Apple Pay transaction on ${applePayData.date}`
+                };
+                
+                // Add the expense
+                const expense = await ExpenseService.addExpense(kv, userId, expenseData);
+                console.log(`✅ APPLE_PAY_SAVED: Expense recorded - $${expense.amount} at ${applePayData.merchant}`);
+                
+                // Send confirmation message
+                const confirmationMsg = `✅ **Apple Pay Transaction Recorded**
+━━━━━━━━━━━━━━━━
+Amount: $${expense.amount.toFixed(2)}
+Merchant: ${applePayData.merchant}
+Date: ${applePayData.date}
+Description: ${expense.description}
+
+Your expense has been automatically added to your tracking!`;
+                
+                return confirmationMsg;
+                
+            } catch (error) {
+                console.error(`❌ APPLE_PAY_ERROR: Failed to save Apple Pay expense: ${error.message}`);
+                return `❌ Error recording Apple Pay transaction: ${error.message}`;
+            }
+        }
+        
         if (choice.includes("Add Expense")) {
             const conversationHandler = new GenericConversationHandler(FLOWS);
             await conversationHandler.startFlow(kv, userId, 'expense_tracking');
@@ -344,29 +430,29 @@ export default {
     },
 
     /**
-     * Show expense history by category
+     * Show expense history by merchant
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
      * @param {number} chatId - Chat ID
      * @returns {Promise<string>} Response text
      */
     async showExpenseHistory(kv, userId, chatId) {
-        const expensesByCategory = await ExpenseService.getExpensesByCategory(kv, userId);
+        const expensesByMerchant = await ExpenseService.getExpensesByMerchant(kv, userId);
         
-        if (!expensesByCategory || Object.keys(expensesByCategory).length === 0) {
+        if (!expensesByMerchant || Object.keys(expensesByMerchant).length === 0) {
             return "📋 No expenses recorded yet.";
         }
         
         let message = "📋 **Expense History**\n━━━━━━━━━━━━━━━━\n";
         let totalAmount = 0;
         
-        for (const [category, expenses] of Object.entries(expensesByCategory)) {
-            const categoryTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-            totalAmount += categoryTotal;
+        for (const [merchant, expenses] of Object.entries(expensesByMerchant)) {
+            const merchantTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+            totalAmount += merchantTotal;
             
-            message += `\n**${category.charAt(0).toUpperCase() + category.slice(1)}** ($${categoryTotal.toFixed(2)})\n`;
+            message += `\n**${merchant.charAt(0).toUpperCase() + merchant.slice(1)}** ($${merchantTotal.toFixed(2)})\n`;
             
-            // Show last 5 expenses in this category
+            // Show last 5 expenses with this merchant
             const sortedExpenses = expenses
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
                 .slice(0, 5);

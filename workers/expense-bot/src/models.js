@@ -101,9 +101,9 @@ export class ConversationField {
  * Represents an expense record
  */
 export class Expense {
-    constructor(amount, category, description = null, timestamp = null) {
+    constructor(amount, merchant, description = null, timestamp = null) {
         this.amount = parseFloat(amount);
-        this.category = category.toLowerCase();
+        this.merchant = merchant.toLowerCase();
         this.description = description;
         this.timestamp = timestamp || new Date();
     }
@@ -111,7 +111,7 @@ export class Expense {
     toObject() {
         return {
             amount: this.amount,
-            category: this.category,
+            merchant: this.merchant,
             description: this.description,
             timestamp: this.timestamp.toISOString(),
         };
@@ -120,7 +120,7 @@ export class Expense {
     static fromObject(obj) {
         return new Expense(
             obj.amount,
-            obj.category,
+            obj.merchant,
             obj.description,
             new Date(obj.timestamp)
         );

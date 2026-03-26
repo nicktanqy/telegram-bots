@@ -6,6 +6,62 @@
 import { Expense } from './models.js';
 
 /**
+ * Parse Apple Pay transaction message.
+ * 
+ * Expected format: "Spent $15 at Starbucks on 26 Mar 2026 at 10:28 PM"
+ * 
+ * @param {string} messageText - The message text to parse
+ * @returns {Object} Object with keys: amount, merchant, date, or empty object if invalid
+ */
+export function parseApplePayMessage(messageText) {
+    // Pattern: "Spent $15 at Starbucks on 26 Mar 2026 at 10:28 PM"
+    // We'll ignore the time part and focus on the date
+    const pattern = /^Spent\s+\$(\d+(?:\.\d{1,2})?)\s+at\s+(.+?)\s+on\s+(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/;
+    
+    const match = messageText.trim().match(pattern);
+    if (!match) {
+        return {};
+    }
+    
+    const [_, amountStr, merchant, dayStr, monthStr, yearStr] = match;
+    
+    try {
+        const amount = parseFloat(amountStr);
+        if (amount <= 0) {
+            return {};
+        }
+        
+        // Convert month name to number
+        const monthMap = {
+            'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+            'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+        };
+        
+        const day = parseInt(dayStr);
+        const month = monthMap[monthStr];
+        const year = parseInt(yearStr);
+        
+        // Extended date validation (100-year range)
+        const currentYear = 2026; // Current year
+        if (!(currentYear - 50 <= year && year <= currentYear + 50) || !(1 <= month && month <= 12) || !(1 <= day && day <= 31)) {
+            return {};
+        }
+        
+        // Format date as YYYY-MM-DD for consistency
+        const dateStr = `${year.toString().padStart(4, '0')}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+        
+        return {
+            amount: amount,
+            merchant: merchant.trim(),
+            date: dateStr
+        };
+    } catch (error) {
+        console.error(`❌ ERROR: Failed to parse Apple Pay message: ${error.message}`);
+        return {};
+    }
+}
+
+/**
  * Service for managing expenses
  */
 export class ExpenseService {
@@ -13,7 +69,7 @@ export class ExpenseService {
      * Add a new expense to user data
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
-     * @param {Object} expenseData - Expense data with amount, category, description
+     * @param {Object} expenseData - Expense data with amount, merchant, description
      * @returns {Promise<Expense>} The created Expense object
      */
     static async addExpense(kv, userId, expenseData) {
@@ -30,7 +86,7 @@ export class ExpenseService {
             
             const expense = new Expense(
                 amount,
-                expenseData.category || "Other",
+                expenseData.merchant || "Unknown",
                 expenseData.description || ""
             );
             console.debug(`  Expense created: ${JSON.stringify(expense.toObject())}`);
@@ -46,7 +102,7 @@ export class ExpenseService {
             
             // Save updated user data
             await kv.put(userId, JSON.stringify(userData));
-            console.info(`✅ SAVED: Expense added - $${amount.toFixed(2)} in '${expense.category}'`);
+            console.info(`✅ SAVED: Expense added - $${amount.toFixed(2)} at '${expense.merchant}'`);
             console.debug(`  Total expenses: ${userData.expenses.length}`);
             
             return expense;
@@ -69,20 +125,20 @@ export class ExpenseService {
     }
 
     /**
-     * Get expenses grouped by category
+     * Get expenses grouped by merchant
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
-     * @returns {Promise<Object>} Object with category names as keys and arrays of expenses as values
+     * @returns {Promise<Object>} Object with merchant names as keys and arrays of expenses as values
      */
-    static async getExpensesByCategory(kv, userId) {
+    static async getExpensesByMerchant(kv, userId) {
         const expenses = await this.getExpenses(kv, userId);
         const grouped = {};
         
         expenses.forEach(expense => {
-            if (!grouped[expense.category]) {
-                grouped[expense.category] = [];
+            if (!grouped[expense.merchant]) {
+                grouped[expense.merchant] = [];
             }
-            grouped[expense.category].push(expense);
+            grouped[expense.merchant].push(expense);
         });
         
         return grouped;
@@ -100,16 +156,16 @@ export class ExpenseService {
     }
 
     /**
-     * Get total for a specific category
+     * Get total for a specific merchant
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
-     * @param {string} category - Category name
-     * @returns {Promise<number>} Total amount for the category
+     * @param {string} merchant - Merchant name
+     * @returns {Promise<number>} Total amount for the merchant
      */
-    static async getCategoryTotal(kv, userId, category) {
-        const expenses = await this.getExpensesByCategory(kv, userId);
-        const categoryExpenses = expenses[category.toLowerCase()] || [];
-        return categoryExpenses.reduce((total, expense) => total + expense.amount, 0);
+    static async getMerchantTotal(kv, userId, merchant) {
+        const expenses = await this.getExpensesByMerchant(kv, userId);
+        const merchantExpenses = expenses[merchant.toLowerCase()] || [];
+        return merchantExpenses.reduce((total, expense) => total + expense.amount, 0);
     }
 
     /**
