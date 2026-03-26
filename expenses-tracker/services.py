@@ -13,7 +13,7 @@ logger.setLevel(logging.DEBUG)
 class Expense:
     """Represents an expense record."""
     amount: float
-    category: str
+    merchant: str
     description: Optional[str] = None
     timestamp: datetime = None
 
@@ -24,7 +24,7 @@ class Expense:
     def to_dict(self) -> dict:
         return {
             "amount": self.amount,
-            "category": self.category,
+            "merchant": self.merchant,
             "description": self.description,
             "timestamp": self.timestamp.isoformat(),
         }
@@ -40,7 +40,7 @@ class ExpenseService:
         
         Args:
             user_data: User's data dictionary
-            expense_data: Dictionary with 'amount', 'category', 'description'
+            expense_data: Dictionary with 'amount', 'merchant', 'description'
             
         Returns:
             The created Expense object
@@ -57,7 +57,7 @@ class ExpenseService:
             
             expense = Expense(
                 amount=amount,
-                category=expense_data.get("category", "Other").lower(),
+                merchant=expense_data.get("merchant", "Unknown").lower(),
                 description=expense_data.get("description", ""),
             )
             logger.debug(f"  Expense created: {expense.to_dict()}")
@@ -67,7 +67,7 @@ class ExpenseService:
                 user_data["expenses"] = []
             
             user_data["expenses"].append(expense.to_dict())
-            logger.info(f"✅ SAVED: Expense added - ${amount:.2f} in '{expense.category}'")
+            logger.info(f"✅ SAVED: Expense added - ${amount:.2f} at '{expense.merchant}'")
             logger.debug(f"  Total expenses: {len(user_data['expenses'])}")
             
             return expense
@@ -83,7 +83,7 @@ class ExpenseService:
         for expense_dict in user_data.get("expenses", []):
             expense = Expense(
                 amount=expense_dict["amount"],
-                category=expense_dict["category"],
+                merchant=expense_dict["merchant"],
                 description=expense_dict.get("description"),
                 timestamp=datetime.fromisoformat(expense_dict["timestamp"]),
             )
@@ -91,13 +91,13 @@ class ExpenseService:
         return expenses
 
     @staticmethod
-    def get_expenses_by_category(user_data: Dict[str, Any]) -> Dict[str, List[Expense]]:
-        """Get expenses grouped by category."""
+    def get_expenses_by_merchant(user_data: Dict[str, Any]) -> Dict[str, List[Expense]]:
+        """Get expenses grouped by merchant."""
         grouped = {}
         for expense in ExpenseService.get_expenses(user_data):
-            if expense.category not in grouped:
-                grouped[expense.category] = []
-            grouped[expense.category].append(expense)
+            if expense.merchant not in grouped:
+                grouped[expense.merchant] = []
+            grouped[expense.merchant].append(expense)
         return grouped
 
     @staticmethod
@@ -106,10 +106,10 @@ class ExpenseService:
         return sum(e.amount for e in ExpenseService.get_expenses(user_data))
 
     @staticmethod
-    def get_category_total(user_data: Dict[str, Any], category: str) -> float:
-        """Get total for a specific category."""
-        expenses = ExpenseService.get_expenses_by_category(user_data)
-        return sum(e.amount for e in expenses.get(category.lower(), []))
+    def get_merchant_total(user_data: Dict[str, Any], merchant: str) -> float:
+        """Get total for a specific merchant."""
+        expenses = ExpenseService.get_expenses_by_merchant(user_data)
+        return sum(e.amount for e in expenses.get(merchant.lower(), []))
 
 
 class ProfileService:

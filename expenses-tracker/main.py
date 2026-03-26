@@ -3,6 +3,7 @@
 import logging
 import os
 import sys
+import re
 from pathlib import Path
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
@@ -37,6 +38,57 @@ from services import ProfileService, ExpenseService
 
 # Conversation states
 MAIN_MENU, ACTIVE_FLOW = range(2)
+
+
+def parse_apple_pay_message(message_text: str) -> dict:
+    """
+    Parse Apple Pay transaction message.
+    
+    Expected format: "Spent $15 at Starbucks on 26 Mar 2026 at 10:28 PM"
+    
+    Returns:
+        dict with keys: amount, merchant, date, or empty dict if invalid
+    """
+    # Pattern: "Spent $15 at Starbucks on 26 Mar 2026 at 10:28 PM"
+    # We'll ignore the time part and focus on the date
+    pattern = r'^Spent\s+\$(\d+(?:\.\d{1,2})?)\s+at\s+(.+?)\s+on\s+(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})'
+    
+    match = re.match(pattern, message_text.strip())
+    if not match:
+        return {}
+    
+    amount_str, merchant, day_str, month_str, year_str = match.groups()
+    
+    try:
+        amount = float(amount_str)
+        if amount <= 0:
+            return {}
+        
+        # Convert month name to number
+        month_map = {
+            'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+            'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+        }
+        
+        day = int(day_str)
+        month = month_map[month_str]
+        year = int(year_str)
+        
+        # Extended date validation (100-year range)
+        current_year = 2026  # Current year
+        if not (current_year - 50 <= year <= current_year + 50) or not (1 <= month <= 12) or not (1 <= day <= 31):
+            return {}
+        
+        # Format date as YYYY-MM-DD for consistency
+        date_str = f"{year:04d}-{month:02d}-{day:02d}"
+        
+        return {
+            'amount': amount,
+            'merchant': merchant.strip(),
+            'date': date_str
+        }
+    except (ValueError, TypeError, KeyError):
+        return {}
 
 
 class ExpenseBot:
@@ -112,6 +164,52 @@ Let's start by setting up your profile."""
         user = update.message.from_user
         logger.info(f"🎯 MENU: User '{user.first_name}' selected: '{choice}'")
 
+        # Check for Apple Pay transaction message
+        apple_pay_data = parse_apple_pay_message(choice)
+        if apple_pay_data:
+            logger.info(f"🍎 APPLE_PAY: Detected Apple Pay transaction from user '{user.first_name}'")
+            logger.debug(f"📦 APPLE_PAY_DATA: {apple_pay_data}")
+            
+            # Ensure user profile is initialized
+            if not ProfileService.is_profile_initialized(context.user_data):
+                logger.debug(f"⚠️  INFO: User not initialized, cannot process Apple Pay transaction")
+                await update.message.reply_text(
+                    "❌ Please set up your profile first with /start before using Apple Pay integration."
+                )
+                return MAIN_MENU
+            
+            try:
+                # Create expense data for the service
+                expense_data = {
+                    'amount': apple_pay_data['amount'],
+                    'merchant': apple_pay_data['merchant'],  # Use merchant field
+                    'description': f"Apple Pay transaction on {apple_pay_data['date']}"
+                }
+                
+                # Add the expense
+                expense = ExpenseService.add_expense(context.user_data, expense_data)
+                logger.info(f"✅ APPLE_PAY_SAVED: Expense recorded - ${expense.amount} at {apple_pay_data['merchant']}")
+                
+                # Send confirmation message
+                confirmation_msg = f"""✅ **Apple Pay Transaction Recorded**
+━━━━━━━━━━━━━━━━
+Amount: ${expense.amount:.2f}
+Merchant: {apple_pay_data['merchant']}
+Date: {apple_pay_data['date']}
+Description: {expense.description}
+
+Your expense has been automatically added to your tracking!"""
+                
+                await update.message.reply_text(confirmation_msg)
+                return MAIN_MENU
+                
+            except Exception as e:
+                logger.error(f"❌ APPLE_PAY_ERROR: Failed to save Apple Pay expense: {e}")
+                await update.message.reply_text(
+                    f"❌ Error recording Apple Pay transaction: {str(e)}"
+                )
+                return MAIN_MENU
+
         if "Add Expense" in choice:
             logger.debug(f"📤 ACTION: Starting 'expense_tracking' flow")
             result = await self.conversation_handler.start_flow(
@@ -144,32 +242,32 @@ Let's start by setting up your profile."""
     async def show_expense_history(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        """Show expense history by category."""
+        """Show expense history by merchant."""
         logger.debug(f"📊 HISTORY: Fetching expense history")
-        expenses_by_category = ExpenseService.get_expenses_by_category(
+        expenses_by_merchant = ExpenseService.get_expenses_by_merchant(
             context.user_data
         )
 
-        if not expenses_by_category:
+        if not expenses_by_merchant:
             logger.debug(f"ℹ️  INFO: No expenses found")
             await update.message.reply_text("📋 No expenses recorded yet.")
             return
 
-        logger.debug(f"📊 HISTORY: Found {len(expenses_by_category)} categories")
+        logger.debug(f"📊 HISTORY: Found {len(expenses_by_merchant)} merchants")
         
         message = "📋 **Expense History**\n━━━━━━━━━━━━━━━━\n"
         total_amount = 0
-        for category, expenses in sorted(expenses_by_category.items()):
-            category_total = sum(e.amount for e in expenses)
-            total_amount += category_total
-            logger.debug(f"  • {category}: ${category_total:.2f} ({len(expenses)} items)")
+        for merchant, expenses in sorted(expenses_by_merchant.items()):
+            merchant_total = sum(e.amount for e in expenses)
+            total_amount += merchant_total
+            logger.debug(f"  • {merchant}: ${merchant_total:.2f} ({len(expenses)} items)")
             
-            message += f"\n**{category.capitalize()}** (${category_total:.2f})\n"
+            message += f"\n**{merchant.capitalize()}** (${merchant_total:.2f})\n"
             for expense in sorted(expenses, key=lambda e: e.timestamp, reverse=True)[:5]:
                 desc = f" - {expense.description}" if expense.description else ""
                 message += f"  • ${expense.amount:.2f}{desc}\n"
 
-        logger.debug(f"💰 TOTAL: ${total_amount:.2f} across all categories")
+        logger.debug(f"💰 TOTAL: ${total_amount:.2f} across all merchants")
         await update.message.reply_text(message)
 
     async def on_setup_complete(
@@ -198,8 +296,8 @@ Let's start by setting up your profile."""
         
         try:
             expense = ExpenseService.add_expense(context.user_data, flow_data)
-            logger.info(f"✅ SAVED: Expense recorded - ${expense.amount} in '{expense.category}'")
-            logger.debug(f"  Amount: ${expense.amount:.2f}, Category: {expense.category}, Description: {expense.description}")
+            logger.info(f"✅ SAVED: Expense recorded - ${expense.amount} at '{expense.merchant}'")
+            logger.debug(f"  Amount: ${expense.amount:.2f}, Merchant: {expense.merchant}, Description: {expense.description}")
             
             completion_msg = FLOWS["expense_tracking"].completion_message
             await update.message.reply_text(
@@ -224,6 +322,53 @@ Let's start by setting up your profile."""
         
         current_flow = ConversationContext.get_current_flow(context.user_data)
         logger.debug(f"🔍 FLOW: Current flow is '{current_flow}'")
+
+        # Check for Apple Pay transaction message even during active flows
+        choice = update.message.text
+        apple_pay_data = parse_apple_pay_message(choice)
+        if apple_pay_data:
+            logger.info(f"🍎 APPLE_PAY: Detected Apple Pay transaction during flow '{current_flow}' from user '{update.message.from_user.first_name}'")
+            logger.debug(f"📦 APPLE_PAY_DATA: {apple_pay_data}")
+            
+            # Ensure user profile is initialized
+            if not ProfileService.is_profile_initialized(context.user_data):
+                logger.debug(f"⚠️  INFO: User not initialized, cannot process Apple Pay transaction")
+                await update.message.reply_text(
+                    "❌ Please set up your profile first with /start before using Apple Pay integration."
+                )
+                return ACTIVE_FLOW
+            
+            try:
+                # Create expense data for the service
+                expense_data = {
+                    'amount': apple_pay_data['amount'],
+                    'merchant': apple_pay_data['merchant'],  # Use merchant field
+                    'description': f"Apple Pay transaction on {apple_pay_data['date']}"
+                }
+                
+                # Add the expense
+                expense = ExpenseService.add_expense(context.user_data, expense_data)
+                logger.info(f"✅ APPLE_PAY_SAVED: Expense recorded during flow - ${expense.amount} at {apple_pay_data['merchant']}")
+                
+                # Send confirmation message
+                confirmation_msg = f"""✅ **Apple Pay Transaction Recorded**
+━━━━━━━━━━━━━━━━
+Amount: ${expense.amount:.2f}
+Merchant: {apple_pay_data['merchant']}
+Date: {apple_pay_data['date']}
+Description: {expense.description}
+
+Your expense has been automatically added to your tracking!"""
+                
+                await update.message.reply_text(confirmation_msg)
+                return ACTIVE_FLOW
+                
+            except Exception as e:
+                logger.error(f"❌ APPLE_PAY_ERROR: Failed to save Apple Pay expense during flow: {e}")
+                await update.message.reply_text(
+                    f"❌ Error recording Apple Pay transaction: {str(e)}"
+                )
+                return ACTIVE_FLOW
 
         on_completion = None
         if current_flow == "expense_setup":
