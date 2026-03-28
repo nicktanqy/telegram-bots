@@ -32,7 +32,7 @@ export class FormField {
         console.debug(`🔍 VALIDATE: Checking field '${this.key}' with value '${value}'`);
         
         if (!value && this.required) {
-            const error = `${this.displayName} is required.`;
+            const error = `${this.displayName} is required. ${this.getHelpText()}`;
             console.debug(`  ❌ EMPTY: ${error}`);
             return { isValid: false, errorMessage: error };
         }
@@ -48,7 +48,7 @@ export class FormField {
                 }
                 return { isValid: true, errorMessage: null };
             } catch (error) {
-                const errorMsg = `${this.displayName} must be a number.`;
+                const errorMsg = `${this.displayName} must be a number. ${this.getHelpText()}`;
                 console.debug(`  ❌ NUMBER_ERROR: ${errorMsg}`);
                 return { isValid: false, errorMessage: errorMsg };
             }
@@ -58,7 +58,7 @@ export class FormField {
             try {
                 const val = parseFloat(value);
                 if (val < 0) {
-                    const errorMsg = `${this.displayName} cannot be negative.`;
+                    const errorMsg = `${this.displayName} cannot be negative. ${this.getHelpText()}`;
                     console.debug(`  ❌ NEGATIVE: ${errorMsg}`);
                     return { isValid: false, errorMessage: errorMsg };
                 }
@@ -70,7 +70,7 @@ export class FormField {
                 }
                 return { isValid: true, errorMessage: null };
             } catch (error) {
-                const errorMsg = `${this.displayName} must be a valid amount.`;
+                const errorMsg = `${this.displayName} must be a valid amount. ${this.getHelpText()}`;
                 console.debug(`  ❌ CURRENCY_ERROR: ${errorMsg}`);
                 return { isValid: false, errorMessage: errorMsg };
             }
@@ -84,6 +84,46 @@ export class FormField {
         
         console.debug(`  ✅ TEXT: Valid text`);
         return { isValid: true, errorMessage: null };
+    }
+
+    /**
+     * Get helpful text for the field based on its type and validation rules
+     */
+    getHelpText() {
+        switch (this.fieldType) {
+            case FieldType.NUMBER:
+                if (this.key === 'months_to_goal') {
+                    return "Example: 12 (for 1 year), 24 (for 2 years), 60 (for 5 years)";
+                }
+                return "Example: 25, 30, 45";
+            
+            case FieldType.CURRENCY:
+                if (this.key === 'amount') {
+                    return "Example: 15.50, 100, 25.99";
+                }
+                if (this.key === 'current_savings' || this.key === 'savings_goal') {
+                    return "Example: 1000.00, 5000, 10000.50";
+                }
+                if (this.key === 'monthly_budget' || this.key === 'monthly_cash_income' || this.key === 'monthly_savings_goal') {
+                    return "Example: 2000.00, 2500, 500.75";
+                }
+                return "Example: 15.50, 100, 25.99";
+            
+            case FieldType.TEXT:
+                if (this.key === 'name') {
+                    return "Example: John Doe, Sarah";
+                }
+                if (this.key === 'category') {
+                    return "Example: food, transport, entertainment, utilities";
+                }
+                if (this.key === 'description') {
+                    return "Example: Coffee at Starbucks, Bus fare, Movie ticket";
+                }
+                return "Please enter a valid value";
+            
+            default:
+                return "Please enter a valid value";
+        }
     }
 }
 

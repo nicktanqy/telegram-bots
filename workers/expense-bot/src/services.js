@@ -211,6 +211,264 @@ export class ExpenseService {
 }
 
 /**
+ * Service for managing recurring expenses and templates
+ */
+export class RecurringExpenseService {
+    /**
+     * Add a recurring expense template
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {Object} templateData - Template data with name, amount, merchant, category, frequency
+     * @returns {Promise<void>}
+     */
+    static async addRecurringTemplate(kv, userId, templateData) {
+        console.debug(`🔄 ADD_TEMPLATE: Adding template for user '${userId}': ${JSON.stringify(templateData)}`);
+        
+        try {
+            const userData = await ExpenseService.getUserData(kv, userId);
+            if (!userData.recurringTemplates) {
+                userData.recurringTemplates = [];
+            }
+            
+            const template = {
+                id: Date.now().toString(),
+                name: templateData.name,
+                amount: parseFloat(templateData.amount),
+                merchant: templateData.merchant,
+                category: templateData.category || 'other',
+                frequency: templateData.frequency || 'monthly', // daily, weekly, monthly, yearly
+                description: templateData.description || '',
+                isActive: true,
+                createdAt: new Date().toISOString()
+            };
+            
+            userData.recurringTemplates.push(template);
+            await ExpenseService.saveUserData(kv, userId, userData);
+            
+            console.info(`✅ TEMPLATE: Added recurring template '${template.name}'`);
+            
+        } catch (error) {
+            console.error(`❌ ERROR: Failed to add recurring template: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Get all recurring expense templates for a user
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @returns {Promise<Array>} Array of recurring templates
+     */
+    static async getRecurringTemplates(kv, userId) {
+        const userData = await ExpenseService.getUserData(kv, userId);
+        return userData.recurringTemplates || [];
+    }
+
+    /**
+     * Delete a recurring expense template
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {string} templateId - Template ID
+     * @returns {Promise<void>}
+     */
+    static async deleteRecurringTemplate(kv, userId, templateId) {
+        console.debug(`🗑️ DELETE_TEMPLATE: Deleting template '${templateId}' for user '${userId}'`);
+        
+        try {
+            const userData = await ExpenseService.getUserData(kv, userId);
+            if (userData.recurringTemplates) {
+                userData.recurringTemplates = userData.recurringTemplates.filter(t => t.id !== templateId);
+                await ExpenseService.saveUserData(kv, userId, userData);
+                console.info(`✅ TEMPLATE: Deleted template '${templateId}'`);
+            }
+        } catch (error) {
+            console.error(`❌ ERROR: Failed to delete recurring template: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Generate expenses from recurring templates for a given period
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {string} period - Time period (e.g., '2026-03' for March 2026)
+     * @returns {Promise<Array>} Array of generated expenses
+     */
+    static async generateRecurringExpenses(kv, userId, period) {
+        console.debug(`🔄 GENERATE: Generating recurring expenses for period '${period}'`);
+        
+        try {
+            const templates = await this.getRecurringTemplates(kv, userId);
+            const generatedExpenses = [];
+            
+            for (const template of templates) {
+                if (!template.isActive) continue;
+                
+                const expenses = this.generateExpensesForTemplate(template, period);
+                generatedExpenses.push(...expenses);
+            }
+            
+            // Add generated expenses to user data
+            if (generatedExpenses.length > 0) {
+                const userData = await ExpenseService.getUserData(kv, userId);
+                if (!userData.expenses) {
+                    userData.expenses = [];
+                }
+                
+                userData.expenses.push(...generatedExpenses.map(expense => expense.toObject()));
+                await ExpenseService.saveUserData(kv, userId, userData);
+                
+                console.info(`✅ GENERATED: ${generatedExpenses.length} recurring expenses for period '${period}'`);
+            }
+            
+            return generatedExpenses;
+            
+        } catch (error) {
+            console.error(`❌ ERROR: Failed to generate recurring expenses: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Generate expenses for a specific template
+     * @param {Object} template - Template object
+     * @param {string} period - Time period (YYYY-MM format)
+     * @returns {Array} Array of generated Expense objects
+     */
+    static generateExpensesForTemplate(template, period) {
+        const expenses = [];
+        const [year, month] = period.split('-').map(Number);
+        const currentDate = new Date();
+        const currentYear = currentDate.getFullYear();
+        const currentMonth = currentDate.getMonth() + 1;
+        
+        // Only generate for current or past periods
+        const periodDate = new Date(year, month - 1, 1);
+        if (periodDate > currentDate) {
+            return expenses;
+        }
+
+        const daysInMonth = new Date(year, month, 0).getDate();
+        
+        switch (template.frequency) {
+            case 'daily':
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const expense = new Expense(
+                        template.amount,
+                        template.merchant,
+                        `${template.name} - Daily expense`,
+                        new Date(year, month - 1, day).toISOString()
+                    );
+                    expenses.push(expense);
+                }
+                break;
+                
+            case 'weekly':
+                // Generate expenses for each week (assume weekly on the 1st, 8th, 15th, 22nd)
+                const weeklyDays = [1, 8, 15, 22];
+                for (const day of weeklyDays) {
+                    if (day <= daysInMonth) {
+                        const expense = new Expense(
+                            template.amount,
+                            template.merchant,
+                            `${template.name} - Weekly expense`,
+                            new Date(year, month - 1, day).toISOString()
+                        );
+                        expenses.push(expense);
+                    }
+                }
+                break;
+                
+            case 'monthly':
+                // Generate one expense per month
+                const expense = new Expense(
+                    template.amount,
+                    template.merchant,
+                    `${template.name} - Monthly expense`,
+                    new Date(year, month - 1, 1).toISOString()
+                );
+                expenses.push(expense);
+                break;
+                
+            case 'yearly':
+                // Only generate if this is the correct month for yearly expense
+                if (month === 1) { // January
+                    const expense = new Expense(
+                        template.amount,
+                        template.merchant,
+                        `${template.name} - Yearly expense`,
+                        new Date(year, 0, 1).toISOString()
+                    );
+                    expenses.push(expense);
+                }
+                break;
+        }
+        
+        return expenses;
+    }
+
+    /**
+     * Get recurring expense summary for a user
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @returns {Promise<string>} Formatted summary
+     */
+    static async getRecurringSummary(kv, userId) {
+        const templates = await this.getRecurringTemplates(kv, userId);
+        
+        if (templates.length === 0) {
+            return "📋 No recurring expense templates set up yet.";
+        }
+        
+        let summary = "📋 **Recurring Expense Templates**\n━━━━━━━━━━━━━━━━\n";
+        
+        for (const template of templates) {
+            if (!template.isActive) continue;
+            
+            summary += `\n**${template.name}**\n`;
+            summary += `  Amount: $${template.amount.toFixed(2)}\n`;
+            summary += `  Merchant: ${template.merchant}\n`;
+            summary += `  Frequency: ${template.frequency}\n`;
+            summary += `  Category: ${template.category}\n`;
+            
+            // Calculate monthly equivalent
+            const monthlyAmount = this.getMonthlyEquivalent(template.amount, template.frequency);
+            summary += `  Monthly Equivalent: $${monthlyAmount.toFixed(2)}\n`;
+        }
+        
+        // Calculate total monthly recurring expenses
+        const totalMonthly = templates
+            .filter(t => t.isActive)
+            .reduce((total, t) => total + this.getMonthlyEquivalent(t.amount, t.frequency), 0);
+        
+        summary += `\n**Total Monthly Recurring: $${totalMonthly.toFixed(2)}**`;
+        
+        return summary;
+    }
+
+    /**
+     * Calculate monthly equivalent for a recurring expense
+     * @param {number} amount - Expense amount
+     * @param {string} frequency - Frequency (daily, weekly, monthly, yearly)
+     * @returns {number} Monthly equivalent amount
+     */
+    static getMonthlyEquivalent(amount, frequency) {
+        switch (frequency) {
+            case 'daily':
+                return amount * 30; // Approximate
+            case 'weekly':
+                return amount * 4.33; // 52 weeks / 12 months
+            case 'monthly':
+                return amount;
+            case 'yearly':
+                return amount / 12;
+            default:
+                return amount;
+        }
+    }
+}
+
+/**
  * Service for managing user profiles
  */
 export class ProfileService {

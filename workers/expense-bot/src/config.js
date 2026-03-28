@@ -350,7 +350,122 @@ export const FLOWS = {
     expense_setup: createExpenseSetupFlow(),
     expense_tracking: createExpenseTrackingFlow(),
     edit_profile: createEditProfileFlow(),
+    recurring_template: createRecurringTemplateFlow(),
 };
+
+/**
+ * Create the recurring template setup flow
+ * @returns {ConversationFlow} Recurring template flow configuration
+ */
+function createRecurringTemplateFlow() {
+    return new ConversationFlow(
+        "recurring_template",
+        "Set up a recurring expense template",
+        "Let's create a recurring expense template.",
+        "✅ Recurring template created successfully!",
+        [
+            new ConversationField(
+                "template_name",
+                new FormField(
+                    "template_name",
+                    "Template Name",
+                    "What should we call this recurring expense? (e.g., Rent, Gym Membership, Netflix)",
+                    FieldType.TEXT,
+                    (value) => {
+                        if (!value || value.trim().length < 2) {
+                            return { isValid: false, errorMessage: "Template name must be at least 2 characters long." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    true
+                )
+            ),
+            new ConversationField(
+                "template_amount",
+                new FormField(
+                    "template_amount",
+                    "Amount",
+                    "How much is this expense? (e.g., 1200.00, 50, 15.99)",
+                    FieldType.CURRENCY,
+                    (value) => {
+                        const amount = parseFloat(value);
+                        if (amount <= 0) {
+                            return { isValid: false, errorMessage: "Amount must be positive." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    true
+                )
+            ),
+            new ConversationField(
+                "template_merchant",
+                new FormField(
+                    "template_merchant",
+                    "Merchant",
+                    "Who do you pay this to? (e.g., Landlord, Netflix, Gym)",
+                    FieldType.TEXT,
+                    (value) => {
+                        if (!value || value.trim().length < 2) {
+                            return { isValid: false, errorMessage: "Merchant name must be at least 2 characters long." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    true
+                )
+            ),
+            new ConversationField(
+                "template_category",
+                new FormField(
+                    "template_category",
+                    "Category",
+                    "What category is this? (e.g., housing, subscriptions, utilities)",
+                    FieldType.TEXT,
+                    (value) => {
+                        if (!value || value.trim().length < 2) {
+                            return { isValid: false, errorMessage: "Category must be at least 2 characters long." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    true
+                )
+            ),
+            new ConversationField(
+                "template_frequency",
+                new FormField(
+                    "template_frequency",
+                    "Frequency",
+                    "How often does this expense occur? (daily, weekly, monthly, yearly)",
+                    FieldType.TEXT,
+                    (value) => {
+                        const frequency = value.toLowerCase().trim();
+                        const validFrequencies = ['daily', 'weekly', 'monthly', 'yearly'];
+                        if (!validFrequencies.includes(frequency)) {
+                            return { isValid: false, errorMessage: "Frequency must be one of: daily, weekly, monthly, yearly." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    true
+                )
+            ),
+            new ConversationField(
+                "template_description",
+                new FormField(
+                    "template_description",
+                    "Description",
+                    "Any additional details? (optional - press enter to skip)",
+                    FieldType.TEXT,
+                    (value) => {
+                        if (value && value.length > 200) {
+                            return { isValid: false, errorMessage: "Description too long. Please keep it under 200 characters." };
+                        }
+                        return { isValid: true, errorMessage: null };
+                    },
+                    false
+                )
+            ),
+        ]
+    );
+}
 
 // UI Configuration
 export const MAIN_MENU_BUTTONS = [

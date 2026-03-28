@@ -3,7 +3,7 @@
  * Migrated from Python to JavaScript for Cloudflare Workers
  */
 
-import { ExpenseService, ProfileService, parseApplePayMessage } from './services.js';
+import { ExpenseService, ProfileService, RecurringExpenseService, parseApplePayMessage } from './services.js';
 import { GenericConversationHandler, FLOW_COMPLETE } from './conversations.js';
 import { FLOWS, MAIN_MENU_BUTTONS, DEVELOPER_CHAT_ID } from './config.js';
 
@@ -129,6 +129,10 @@ export default {
                 responseText = await this.progress(env.USER_DATA, userId, chatId);
             } else if (text === '/breakdown') {
                 responseText = await this.breakdown(env.USER_DATA, userId, chatId);
+            } else if (text === '/recurring') {
+                responseText = await this.recurring(env.USER_DATA, userId, chatId);
+            } else if (text === '/add_recurring') {
+                responseText = await this.addRecurring(env.USER_DATA, userId, chatId);
             } else if (text === '/monthly-report' && userId === DEVELOPER_CHAT_ID.toString()) {
                 responseText = await this.monthlyReport(env, userId, chatId);
             } else if (text.startsWith('/add ') && text.length > 5) {
@@ -543,6 +547,47 @@ Merchant: ${expense.merchant}`;
     },
 
     /**
+     * Handle /recurring command
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {number} chatId - Chat ID
+     * @returns {Promise<string>} Response text
+     */
+    async recurring(kv, userId, chatId) {
+        const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+        
+        if (!isInitialized) {
+            return "❌ Please set up your profile first with /start";
+        }
+        
+        return await RecurringExpenseService.getRecurringSummary(kv, userId);
+    },
+
+    /**
+     * Handle /add_recurring command
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {number} chatId - Chat ID
+     * @returns {Promise<string>} Response text
+     */
+    async addRecurring(kv, userId, chatId) {
+        const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+        
+        if (!isInitialized) {
+            return "❌ Please set up your profile first with /start";
+        }
+        
+        // Start template setup flow
+        const conversationHandler = new GenericConversationHandler(FLOWS);
+        await conversationHandler.startFlow(kv, userId, 'recurring_template');
+        
+        const flow = FLOWS.recurring_template;
+        const firstStep = flow.getStep(0);
+        
+        return `${flow.welcome_message}\n\n${firstStep.formField.prompt}`;
+    },
+
+    /**
      * Handle /show_data command (developer only)
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
@@ -679,8 +724,39 @@ Your expense has been automatically added to your tracking!`;
             return this.onExpenseComplete.bind(this);
         } else if (flowName === 'edit_profile') {
             return this.onEditProfileComplete.bind(this);
+        } else if (flowName === 'recurring_template') {
+            return this.onRecurringTemplateComplete.bind(this);
         }
         return null;
+    },
+
+    /**
+     * Handle completion of recurring template flow
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {Object} flowData - Flow data
+     * @returns {Promise<void>}
+     */
+    async onRecurringTemplateComplete(kv, userId, flowData) {
+        console.log(`✅ CALLBACK: Recurring template flow completed for user ${userId}`);
+        console.log(`📦 TEMPLATE_DATA: ${JSON.stringify(flowData)}`);
+        
+        try {
+            const templateData = {
+                name: flowData.template_name,
+                amount: flowData.template_amount,
+                merchant: flowData.template_merchant,
+                category: flowData.template_category,
+                frequency: flowData.template_frequency,
+                description: flowData.template_description || ''
+            };
+            
+            await RecurringExpenseService.addRecurringTemplate(kv, userId, templateData);
+            console.log(`✅ TEMPLATE: Recurring template '${templateData.name}' created successfully`);
+            
+        } catch (error) {
+            console.error(`❌ ERROR: Failed to create recurring template: ${error.message}`);
+        }
     },
 
     /**
