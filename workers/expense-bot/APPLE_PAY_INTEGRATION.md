@@ -7,10 +7,10 @@ This document explains how the Apple Pay integration works with your Cloudflare 
 The Apple Pay integration automatically detects and processes Apple Pay transaction messages sent to your bot. When you make an Apple Pay transaction, your iPhone's Shortcuts automation will send a message in the format:
 
 ```
-Spent $15 at Starbucks on 26 Mar 2026 at 10:28 PM
+Spent $15 at Starbucks on 2026-03-26
 ```
 
-The bot will automatically parse this message, extract the transaction details, and record it as an expense. The time portion is ignored as it's not needed for expense tracking.
+The bot will automatically parse this message, extract the transaction details, and record it as an expense.
 
 ## How It Works
 
@@ -19,23 +19,23 @@ The bot will automatically parse this message, extract the transaction details, 
 The bot uses regex pattern matching to detect Apple Pay messages:
 
 ```javascript
-const pattern = /^Spent\s+\$(\d+(?:\.\d{1,2})?)\s+at\s+(.+?)\s+on\s+(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/;
+const pattern = /^Spent\s+\$(\d+(?:\.\d{1,2})?)\s+at\s+(.+?)\s+on\s+(\d{4})-(\d{2})-(\d{2})/;
 ```
 
-This pattern matches messages in the exact format: `Spent $AMOUNT at MERCHANT on DD MMM YYYY`
+This pattern matches messages in the exact format: `Spent $AMOUNT at MERCHANT on YYYY-MM-DD`
 
 ### 2. Data Extraction
 
 When a match is found, the bot extracts:
 - **Amount**: The transaction amount (must be positive)
 - **Merchant**: The store/business name
-- **Date**: The transaction date (converted to YYYY-MM-DD format)
+- **Date**: The transaction date (already in YYYY-MM-DD format)
 
 ### 3. Validation
 
 The bot validates:
 - Amount must be a positive number
-- Date must be in valid DD MMM YYYY format
+- Date must be in valid YYYY-MM-DD format
 - Date must be within reasonable range (100-year range: 1976-2076)
 
 ### 4. Expense Recording
@@ -55,7 +55,7 @@ Valid transactions are automatically recorded with:
 ### Example Workflow
 
 1. **User makes Apple Pay transaction** at Starbucks for $15
-2. **Shortcuts automation** sends: `"Spent $15 at Starbucks on 26 Mar 2026 at 10:28 PM"`
+2. **Shortcuts automation** sends: `"Spent $15 at Starbucks on 2026-03-26"`
 3. **Bot detects** the Apple Pay message format
 4. **Bot parses** and validates the transaction data
 5. **Bot records** the expense automatically
@@ -123,22 +123,22 @@ The test suite validates:
 
 ### Valid Examples
 ```
-Spent $15 at Starbucks on 26 Mar 2026 at 10:28 PM
-Spent $5.00 at McDonald's on 25 Mar 2026 at 1:30 PM
-Spent $100.00 at Amazon on 20 Mar 2026 at 11:45 AM
-Spent $0.50 at Vending Machine on 26 Mar 2026 at 9:15 AM
-Spent $25.75 at Target on 15 Dec 2025 at 6:20 PM
-Spent $120.00 at Best Buy on 1 Jan 2027 at 2:00 PM
+Spent $15 at Starbucks on 2026-03-26
+Spent $5.00 at McDonald's on 2026-03-25
+Spent $100.00 at Amazon on 2026-03-20
+Spent $0.50 at Vending Machine on 2026-03-26
+Spent $25.75 at Target on 2025-12-15
+Spent $120.00 at Best Buy on 2027-01-01
 ```
 
 ### Invalid Examples
 ```
-Spent $-10.00 at Store on 26 Mar 2026 at 10:28 PM    # Negative amount
-Spent $abc at Store on 26 Mar 2026 at 10:28 PM       # Invalid amount
-Invalid message format                                 # Wrong format
-Spent $10.00 at Store                                 # Missing date
-Spent $10.00 at Store on 26 March 2026 at 10:28 PM   # Wrong month format
-Spent $15 at Starbucks on 32 Mar 2026 at 10:28 PM    # Invalid day
+Spent $-10.00 at Store on 2026-03-26    # Negative amount
+Spent $abc at Store on 2026-03-26       # Invalid amount
+Invalid message format                  # Wrong format
+Spent $10.00 at Store                   # Missing date
+Spent $10.00 at Store on 2026/03/26     # Wrong separator
+Spent $15 at Starbucks on 2026-03-32    # Invalid day
 ```
 
 ## Configuration
@@ -166,12 +166,12 @@ The integration preserves merchant information instead of using generic categori
 ### Common Issues
 
 1. **Message Not Detected**
-   - Ensure message format matches exactly: `Spent $AMOUNT at MERCHANT on DD MMM YYYY`
+   - Ensure message format matches exactly: `Spent $AMOUNT at MERCHANT on YYYY-MM-DD`
    - Check that user has completed profile setup
 
 2. **Transaction Not Recorded**
    - Verify amount is positive
-   - Check date format is DD MMM YYYY
+   - Check date format is YYYY-MM-DD
    - Ensure bot has write permissions to user data
 
 3. **Error Messages**

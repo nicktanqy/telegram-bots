@@ -101,16 +101,16 @@ function createExpenseSetupFlow() {
                 )
             ),
             new ConversationField(
-                "goal_age",
+                "months_to_goal",
                 new FormField(
-                    "goal_age",
-                    "Goal Age",
-                    "By what age do you want to achieve this goal?",
+                    "months_to_goal",
+                    "Months to Goal",
+                    "How many months do you want to take to achieve this savings goal?",
                     FieldType.NUMBER,
                     (value) => {
-                        const age = parseInt(value);
-                        if (age < 13 || age > 120) {
-                            return { isValid: false, errorMessage: "Goal age must be between 13 and 120." };
+                        const months = parseInt(value);
+                        if (months < 1 || months > 1200) {
+                            return { isValid: false, errorMessage: "Months must be between 1 and 1200 (100 years)." };
                         }
                         return { isValid: true, errorMessage: null };
                     },

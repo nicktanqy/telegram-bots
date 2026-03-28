@@ -2,7 +2,7 @@
  * Test Apple Pay integration for Cloudflare Workers bot
  */
 
-import { parseApplePayMessage } from '../src/services.js';
+import { parseApplePayMessage } from './src/services.js';
 
 /**
  * Test cases for Apple Pay message parsing
@@ -10,7 +10,7 @@ import { parseApplePayMessage } from '../src/services.js';
 const testCases = [
     {
         name: "Valid Apple Pay message with Starbucks",
-        input: "Spent $15 at Starbucks on 26 Mar 2026 at 10:28 PM",
+        input: "Spent $15 at Starbucks on 2026-03-26",
         expected: {
             amount: 15.0,
             merchant: "Starbucks",
@@ -19,7 +19,7 @@ const testCases = [
     },
     {
         name: "Valid Apple Pay message with McDonald's",
-        input: "Spent $5.00 at McDonald's on 25 Mar 2026 at 1:30 PM",
+        input: "Spent $5.00 at McDonald's on 2026-03-25",
         expected: {
             amount: 5.0,
             merchant: "McDonald's",
@@ -28,7 +28,7 @@ const testCases = [
     },
     {
         name: "Valid Apple Pay message with Amazon",
-        input: "Spent $100.00 at Amazon on 20 Mar 2026 at 11:45 AM",
+        input: "Spent $100.00 at Amazon on 2026-03-20",
         expected: {
             amount: 100.0,
             merchant: "Amazon",
@@ -37,7 +37,7 @@ const testCases = [
     },
     {
         name: "Valid Apple Pay message with Vending Machine",
-        input: "Spent $0.50 at Vending Machine on 26 Mar 2026 at 9:15 AM",
+        input: "Spent $0.50 at Vending Machine on 2026-03-26",
         expected: {
             amount: 0.5,
             merchant: "Vending Machine",
@@ -46,7 +46,7 @@ const testCases = [
     },
     {
         name: "Valid Apple Pay message with Target",
-        input: "Spent $25.75 at Target on 15 Dec 2025 at 6:20 PM",
+        input: "Spent $25.75 at Target on 2025-12-15",
         expected: {
             amount: 25.75,
             merchant: "Target",
@@ -55,7 +55,7 @@ const testCases = [
     },
     {
         name: "Valid Apple Pay message with Best Buy",
-        input: "Spent $120.00 at Best Buy on 1 Jan 2027 at 2:00 PM",
+        input: "Spent $120.00 at Best Buy on 2027-01-01",
         expected: {
             amount: 120.0,
             merchant: "Best Buy",
@@ -64,12 +64,12 @@ const testCases = [
     },
     {
         name: "Invalid negative amount",
-        input: "Spent $-10.00 at Store on 26 Mar 2026 at 10:28 PM",
+        input: "Spent $-10.00 at Store on 2026-03-26",
         expected: {}
     },
     {
         name: "Invalid non-numeric amount",
-        input: "Spent $abc at Store on 26 Mar 2026 at 10:28 PM",
+        input: "Spent $abc at Store on 2026-03-26",
         expected: {}
     },
     {
@@ -88,13 +88,13 @@ const testCases = [
         expected: {}
     },
     {
-        name: "Invalid month format",
-        input: "Spent $10.00 at Store on 26 March 2026 at 10:28 PM",
+        name: "Invalid date format (wrong separator)",
+        input: "Spent $10.00 at Store on 2026/03/26",
         expected: {}
     },
     {
-        name: "Invalid month format uppercase",
-        input: "Spent $10.00 at Store on 26 MAR 2026 at 10:28 PM",
+        name: "Invalid date format (no separators)",
+        input: "Spent $10.00 at Store on 20260326",
         expected: {}
     },
     {
@@ -104,17 +104,22 @@ const testCases = [
     },
     {
         name: "Invalid day",
-        input: "Spent $15 at Starbucks on 32 Mar 2026 at 10:28 PM",
+        input: "Spent $15 at Starbucks on 2026-03-32",
+        expected: {}
+    },
+    {
+        name: "Invalid month",
+        input: "Spent $15 at Starbucks on 2026-13-26",
         expected: {}
     },
     {
         name: "Invalid year (too old)",
-        input: "Spent $15 at Starbucks on 26 Feb 1970 at 10:28 PM",
+        input: "Spent $15 at Starbucks on 1970-02-26",
         expected: {}
     },
     {
         name: "Invalid year (too far future)",
-        input: "Spent $15 at Starbucks on 26 Feb 2100 at 10:28 PM",
+        input: "Spent $15 at Starbucks on 2100-02-26",
         expected: {}
     }
 ];

@@ -8,22 +8,22 @@ import { Expense } from './models.js';
 /**
  * Parse Apple Pay transaction message.
  * 
- * Expected format: "Spent $15 at Starbucks on 26 Mar 2026 at 10:28 PM"
+ * Expected format: "Spent $15 at Starbucks on 2026-03-26"
  * 
  * @param {string} messageText - The message text to parse
  * @returns {Object} Object with keys: amount, merchant, date, or empty object if invalid
  */
 export function parseApplePayMessage(messageText) {
-    // Pattern: "Spent $15 at Starbucks on 26 Mar 2026 at 10:28 PM"
-    // We'll ignore the time part and focus on the date
-    const pattern = /^Spent\s+\$(\d+(?:\.\d{1,2})?)\s+at\s+(.+?)\s+on\s+(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/;
+    // Pattern: "Spent $15 at Starbucks on 2026-03-26"
+    // Message ends with the date, no time portion
+    const pattern = /^Spent\s+\$(\d+(?:\.\d{1,2})?)\s+at\s+(.+?)\s+on\s+(\d{4})-(\d{2})-(\d{2})/;
     
     const match = messageText.trim().match(pattern);
     if (!match) {
         return {};
     }
     
-    const [_, amountStr, merchant, dayStr, monthStr, yearStr] = match;
+    const [_, amountStr, merchant, yearStr, monthStr, dayStr] = match;
     
     try {
         const amount = parseFloat(amountStr);
@@ -31,14 +31,8 @@ export function parseApplePayMessage(messageText) {
             return {};
         }
         
-        // Convert month name to number
-        const monthMap = {
-            'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-            'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
-        };
-        
         const day = parseInt(dayStr);
-        const month = monthMap[monthStr];
+        const month = parseInt(monthStr);
         const year = parseInt(yearStr);
         
         // Extended date validation (100-year range)
@@ -248,8 +242,8 @@ export class ProfileService {
             userData.savingsGoal = parseFloat(profileData.savings_goal || 0);
             console.debug(`  Savings Goal: $${userData.savingsGoal.toFixed(2)}`);
             
-            userData.goalAge = parseInt(profileData.goal_age || 0);
-            console.debug(`  Goal Age: ${userData.goalAge}`);
+            userData.monthsToGoal = parseInt(profileData.months_to_goal || 0);
+            console.debug(`  Months to Goal: ${userData.monthsToGoal}`);
             
             userData.monthlyCashIncome = parseFloat(profileData.monthly_cash_income || 0);
             console.debug(`  Monthly Cash Income: $${userData.monthlyCashIncome.toFixed(2)}`);
@@ -302,7 +296,7 @@ export class ProfileService {
         const currentSavings = userData.currentSavings || 0;
         const monthlyBudget = userData.monthlyBudget || 0;
         const savingsGoal = userData.savingsGoal || 0;
-        const goalAge = userData.goalAge || 0;
+        const monthsToGoal = userData.monthsToGoal || 0;
         const age = userData.age || 0;
         
         const budgetRemaining = monthlyBudget - totalExpenses;
@@ -325,9 +319,9 @@ Current Savings: $${currentSavings.toFixed(2)}
 Monthly Budget: $${monthlyBudget.toFixed(2)}
 Savings Goal: $${savingsGoal.toFixed(2)} (Progress: ${goalProgress.toFixed(1)}%)`;
 
-        if (goalAge > 0 && age > 0) {
+        if (monthsToGoal > 0) {
             summary += `
-Goal Age: ${goalAge} (${journeyInfo.yearsRemaining} years remaining)
+Months to Goal: ${monthsToGoal}
 Monthly Savings Needed: $${journeyInfo.monthlySavingsNeeded.toFixed(2)}
 Journey Progress: ${journeyInfo.journeyProgress.toFixed(1)}%`;
         }
@@ -342,7 +336,7 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
     }
 
     /**
-     * Calculate journey progress toward savings goal based on age
+     * Calculate journey progress toward savings goal based on months
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
      * @returns {Promise<Object>} Journey progress information
@@ -351,19 +345,17 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
         const userData = await ExpenseService.getUserData(kv, userId);
         const currentSavings = userData.currentSavings || 0;
         const savingsGoal = userData.savingsGoal || 0;
-        const goalAge = userData.goalAge || 0;
-        const age = userData.age || 0;
+        const monthsToGoal = userData.monthsToGoal || 0;
         
-        if (goalAge <= 0 || age <= 0 || savingsGoal <= 0) {
+        if (monthsToGoal <= 0 || savingsGoal <= 0) {
             return {
-                yearsRemaining: 0,
+                monthsRemaining: 0,
                 monthlySavingsNeeded: 0,
                 journeyProgress: 0
             };
         }
         
-        const yearsRemaining = Math.max(0, goalAge - age);
-        const monthsRemaining = yearsRemaining * 12;
+        const monthsRemaining = monthsToGoal;
         
         let monthlySavingsNeeded = 0;
         if (monthsRemaining > 0) {
@@ -375,7 +367,7 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
             ((monthsRemaining - (savingsGoal - currentSavings) / monthlySavingsNeeded) / monthsRemaining * 100) : 0;
         
         return {
-            yearsRemaining,
+            monthsRemaining,
             monthlySavingsNeeded: Math.max(0, monthlySavingsNeeded),
             journeyProgress: Math.max(0, Math.min(100, journeyProgress))
         };

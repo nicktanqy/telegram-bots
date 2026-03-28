@@ -49,7 +49,7 @@ async function runSimpleTest() {
             current_savings: 1000,
             monthly_budget: 2000,
             savings_goal: 10000,
-            goal_age: 40,
+            months_to_goal: 24,
             monthly_cash_income: 2500,
             monthly_savings_goal: 500
         };
