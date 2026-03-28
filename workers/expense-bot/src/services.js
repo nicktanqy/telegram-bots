@@ -338,13 +338,39 @@ export class RecurringExpenseService {
                     userData.expenses = [];
                 }
                 
-                userData.expenses.push(...generatedExpenses.map(expense => expense.toObject()));
-                await ExpenseService.saveUserData(kv, userId, userData);
+                // Check if expenses for this period already exist to avoid duplicates
+                const existingExpenseIds = new Set();
+                userData.expenses.forEach(expense => {
+                    const expenseDate = new Date(expense.timestamp);
+                    const expensePeriod = `${expenseDate.getFullYear()}-${(expenseDate.getMonth() + 1).toString().padStart(2, '0')}`;
+                    if (expensePeriod === period) {
+                        existingExpenseIds.add(`${expense.merchant}-${expense.description}`);
+                    }
+                });
                 
-                console.info(`✅ GENERATED: ${generatedExpenses.length} recurring expenses for period '${period}'`);
+                // Only add new expenses that don't already exist for this period
+                const newExpenses = generatedExpenses.filter(expense => {
+                    const expenseKey = `${expense.merchant}-${expense.description}`;
+                    return !existingExpenseIds.has(expenseKey);
+                });
+                
+                if (newExpenses.length > 0) {
+                    userData.expenses.push(...newExpenses.map(expense => expense.toObject()));
+                    await ExpenseService.saveUserData(kv, userId, userData);
+                    console.info(`✅ GENERATED: ${newExpenses.length} recurring expenses for period '${period}'`);
+                } else {
+                    console.info(`ℹ️  INFO: No new recurring expenses to generate for period '${period}'`);
+                }
             }
             
-            return generatedExpenses;
+            // Return only the new expenses that were actually added, not all generated
+            return generatedExpenses.filter(expense => {
+                const expenseKey = `${expense.merchant}-${expense.description}`;
+                return !generatedExpenses.some((existing, index) => 
+                    index < generatedExpenses.indexOf(expense) && 
+                    `${existing.merchant}-${existing.description}` === expenseKey
+                );
+            });
             
         } catch (error) {
             console.error(`❌ ERROR: Failed to generate recurring expenses: ${error.message}`);
@@ -403,12 +429,12 @@ export class RecurringExpenseService {
                 break;
                 
             case 'monthly':
-                // Generate one expense per month
+                // Generate one expense per month with current date/time
                 const expense = new Expense(
                     template.amount,
                     template.merchant,
                     `${template.name} - Monthly expense`,
-                    new Date(year, month - 1, 1).toISOString()
+                    new Date().toISOString() // Use current date/time instead of period date
                 );
                 expenses.push(expense);
                 break;
@@ -570,8 +596,10 @@ export class ProfileService {
             return "Profile not initialized.";
         }
         
-        const totalExpenses = await ExpenseService.getTotalExpenses(kv, userId);
-        console.debug(`  Total Expenses: $${totalExpenses.toFixed(2)}`);
+        // Get monthly expenses including recurring expenses
+        const monthlyExpenses = await ProfileService.getMonthlyExpenses(kv, userId);
+        const totalMonthlyExpenses = monthlyExpenses.reduce((total, expense) => total + expense.amount, 0);
+        console.debug(`  Total Monthly Expenses (including recurring): $${totalMonthlyExpenses.toFixed(2)}`);
         
         const userData = await ExpenseService.getUserData(kv, userId);
         const currentSavings = userData.currentSavings || 0;
@@ -580,7 +608,7 @@ export class ProfileService {
         const monthsToGoal = userData.monthsToGoal || 0;
         const age = userData.age || 0;
         
-        const budgetRemaining = monthlyBudget - totalExpenses;
+        const budgetRemaining = monthlyBudget - totalMonthlyExpenses;
         const goalProgress = savingsGoal > 0 ? (currentSavings / savingsGoal * 100) : 0;
         
         // Calculate journey progress
@@ -609,7 +637,7 @@ Journey Progress: ${journeyInfo.journeyProgress.toFixed(1)}%`;
         
         summary += `
 ━━━━━━━━━━━━━━━━
-Total Expenses: $${totalExpenses.toFixed(2)}
+Total Monthly Expenses: $${totalMonthlyExpenses.toFixed(2)}
 Budget Remaining: $${budgetRemaining.toFixed(2)}`;
         
         console.debug(`✅ SUMMARY: Generated successfully`);
@@ -655,21 +683,35 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
     }
 
     /**
-     * Get monthly expenses for current month
+     * Get monthly expenses for current month including recurring expenses
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
      * @returns {Promise<Expense[]>} Array of expenses for current month
      */
     static async getMonthlyExpenses(kv, userId) {
+        // Get regular expenses
         const expenses = await ExpenseService.getExpenses(kv, userId);
         const now = new Date();
         const currentYear = now.getFullYear();
         const currentMonth = now.getMonth();
         
-        return expenses.filter(expense => {
+        // Filter regular expenses for current month
+        const regularExpenses = expenses.filter(expense => {
             const expenseDate = new Date(expense.timestamp);
             return expenseDate.getFullYear() === currentYear && expenseDate.getMonth() === currentMonth;
         });
+        
+        // Generate recurring expenses for current month
+        const currentPeriod = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}`;
+        const recurringExpenses = await RecurringExpenseService.generateRecurringExpenses(kv, userId, currentPeriod);
+        
+        // Combine regular and recurring expenses
+        const allExpenses = [...regularExpenses, ...recurringExpenses];
+        
+        // Sort by timestamp
+        allExpenses.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        
+        return allExpenses;
     }
 
     /**
@@ -687,20 +729,45 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
             let category = 'other';
             if (expense.description) {
                 const desc = expense.description.toLowerCase();
-                if (desc.includes('food') || desc.includes('meal') || desc.includes('restaurant') || desc.includes('cafe')) {
-                    category = 'food';
-                } else if (desc.includes('transport') || desc.includes('bus') || desc.includes('mrt') || desc.includes('taxi')) {
-                    category = 'transport';
-                } else if (desc.includes('entertainment') || desc.includes('movie') || desc.includes('game') || desc.includes('streaming')) {
-                    category = 'entertainment';
-                } else if (desc.includes('utilities') || desc.includes('electricity') || desc.includes('water') || desc.includes('internet')) {
-                    category = 'utilities';
-                } else if (desc.includes('shopping') || desc.includes('clothes') || desc.includes('electronics')) {
-                    category = 'shopping';
-                } else if (desc.includes('healthcare') || desc.includes('medical') || desc.includes('pharmacy')) {
-                    category = 'healthcare';
-                } else if (desc.includes('education') || desc.includes('books') || desc.includes('courses')) {
-                    category = 'education';
+                
+                // Check for recurring expense patterns first
+                if (desc.includes('monthly expense') || desc.includes('weekly expense') || desc.includes('daily expense') || desc.includes('yearly expense')) {
+                    // For recurring expenses, try to extract category from the template name
+                    const templateName = expense.description.split(' - ')[0].toLowerCase();
+                    if (templateName.includes('rent') || templateName.includes('housing') || templateName.includes('home')) {
+                        category = 'housing';
+                    } else if (templateName.includes('netflix') || templateName.includes('spotify') || templateName.includes('streaming') || templateName.includes('entertainment')) {
+                        category = 'entertainment';
+                    } else if (templateName.includes('gym') || templateName.includes('health') || templateName.includes('medical') || templateName.includes('pharmacy')) {
+                        category = 'healthcare';
+                    } else if (templateName.includes('electricity') || templateName.includes('water') || templateName.includes('internet') || templateName.includes('utilities')) {
+                        category = 'utilities';
+                    } else if (templateName.includes('transport') || templateName.includes('bus') || templateName.includes('mrt') || templateName.includes('taxi')) {
+                        category = 'transport';
+                    } else if (templateName.includes('food') || templateName.includes('meal') || templateName.includes('restaurant') || templateName.includes('cafe')) {
+                        category = 'food';
+                    } else if (templateName.includes('shopping') || templateName.includes('clothes') || templateName.includes('electronics')) {
+                        category = 'shopping';
+                    } else if (templateName.includes('education') || templateName.includes('books') || templateName.includes('courses')) {
+                        category = 'education';
+                    }
+                } else {
+                    // Regular expense category detection
+                    if (desc.includes('food') || desc.includes('meal') || desc.includes('restaurant') || desc.includes('cafe')) {
+                        category = 'food';
+                    } else if (desc.includes('transport') || desc.includes('bus') || desc.includes('mrt') || desc.includes('taxi')) {
+                        category = 'transport';
+                    } else if (desc.includes('entertainment') || desc.includes('movie') || desc.includes('game') || desc.includes('streaming')) {
+                        category = 'entertainment';
+                    } else if (desc.includes('utilities') || desc.includes('electricity') || desc.includes('water') || desc.includes('internet')) {
+                        category = 'utilities';
+                    } else if (desc.includes('shopping') || desc.includes('clothes') || desc.includes('electronics')) {
+                        category = 'shopping';
+                    } else if (desc.includes('healthcare') || desc.includes('medical') || desc.includes('pharmacy')) {
+                        category = 'healthcare';
+                    } else if (desc.includes('education') || desc.includes('books') || desc.includes('courses')) {
+                        category = 'education';
+                    }
                 }
             }
             

@@ -447,22 +447,6 @@ function createRecurringTemplateFlow() {
                     true
                 )
             ),
-            new ConversationField(
-                "template_description",
-                new FormField(
-                    "template_description",
-                    "Description",
-                    "Any additional details? (optional - press enter to skip)",
-                    FieldType.TEXT,
-                    (value) => {
-                        if (value && value.length > 200) {
-                            return { isValid: false, errorMessage: "Description too long. Please keep it under 200 characters." };
-                        }
-                        return { isValid: true, errorMessage: null };
-                    },
-                    false
-                )
-            ),
         ]
     );
 }
