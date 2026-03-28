@@ -470,7 +470,8 @@ function createRecurringTemplateFlow() {
 // UI Configuration
 export const MAIN_MENU_BUTTONS = [
     ["📊 View Stats", "💰 Add Expense"],
-    ["⚙️ Settings", "📋 History"],
+    ["📈 Progress", "📊 Breakdown"],
+    ["🔄 Recurring", "📋 History"],
 ];
 
 // Settings

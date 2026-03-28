@@ -166,7 +166,7 @@ export default {
                             console.log(`✅ APPLE_PAY_SAVED: Expense recorded during flow - $${expense.amount} at ${applePayData.merchant}`);
                             
                             // Send confirmation message
-                            const confirmationMsg = `✅ **Apple Pay Transaction Recorded**
+                            const confirmationMsg = `✅ Apple Pay Transaction Recorded
 ━━━━━━━━━━━━━━━━
 Amount: $${expense.amount.toFixed(2)}
 Merchant: ${applePayData.merchant}
@@ -640,7 +640,7 @@ Merchant: ${expense.merchant}`;
                 console.log(`✅ APPLE_PAY_SAVED: Expense recorded - $${expense.amount} at ${applePayData.merchant}`);
                 
                 // Send confirmation message
-                const confirmationMsg = `✅ **Apple Pay Transaction Recorded**
+                const confirmationMsg = `✅ Apple Pay Transaction Recorded
 ━━━━━━━━━━━━━━━━
 Amount: $${expense.amount.toFixed(2)}
 Merchant: ${applePayData.merchant}
@@ -666,10 +666,88 @@ Your expense has been automatically added to your tracking!`;
             return firstStep.formField.prompt;
         } else if (choice.includes("View Stats")) {
             return await ProfileService.getProfileSummary(kv, userId);
+        } else if (choice.includes("Progress")) {
+            const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+            
+            if (!isInitialized) {
+                return "❌ Please set up your profile first with /start";
+            }
+            
+            const progress = await ProfileService.getMonthlySavingsProgress(kv, userId);
+            const totalExpenses = await ProfileService.getTotalMonthlyExpenses(kv, userId);
+            
+            const now = new Date();
+            const monthName = now.toLocaleString('default', { month: 'long' });
+            
+            let message = `📊 **Monthly Progress - ${monthName}**
+━━━━━━━━━━━━━━━━
+Total Expenses: $${totalExpenses.toFixed(2)}
+Monthly Income: $${progress.monthlyCashIncome.toFixed(2)}
+Monthly Savings: $${progress.monthlySavings.toFixed(2)}
+Budget Remaining: $${progress.budgetRemaining.toFixed(2)}`;
+            
+            if (progress.monthlySavingsGoal > 0) {
+                message += `
+Monthly Savings Goal: $${progress.monthlySavingsGoal.toFixed(2)}
+Progress: ${progress.monthlySavingsProgress.toFixed(1)}%`;
+            }
+            
+            // Check for budget alerts
+            const alert = await ProfileService.checkBudgetAlert(kv, userId);
+            if (alert) {
+                message += `\n\n${alert.message}`;
+            }
+            
+            return message;
+        } else if (choice.includes("Breakdown")) {
+            const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+            
+            if (!isInitialized) {
+                return "❌ Please set up your profile first with /start";
+            }
+            
+            const expensesByCategory = await ProfileService.getMonthlyExpensesByCategory(kv, userId);
+            const totalExpenses = await ProfileService.getTotalMonthlyExpenses(kv, userId);
+            
+            if (!expensesByCategory || Object.keys(expensesByCategory).length === 0) {
+                return "📋 No expenses recorded for this month yet.";
+            }
+            
+            const now = new Date();
+            const monthName = now.toLocaleString('default', { month: 'long' });
+            
+            let message = `📊 **Expense Breakdown - ${monthName}**
+━━━━━━━━━━━━━━━━
+Total Expenses: $${totalExpenses.toFixed(2)}`;
+            
+            for (const [category, expenses] of Object.entries(expensesByCategory)) {
+                const categoryTotal = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+                const percentage = totalExpenses > 0 ? (categoryTotal / totalExpenses * 100) : 0;
+                
+                message += `\n\n**${category.charAt(0).toUpperCase() + category.slice(1)}** ($${categoryTotal.toFixed(2)} - ${percentage.toFixed(1)}%)`;
+                
+                // Show last 3 expenses in this category
+                const sortedExpenses = expenses
+                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                    .slice(0, 3);
+                
+                for (const expense of sortedExpenses) {
+                    const desc = expense.description ? ` - ${expense.description}` : "";
+                    message += `\n  • $${expense.amount.toFixed(2)} at ${expense.merchant}${desc}`;
+                }
+            }
+            
+            return message;
+        } else if (choice.includes("Recurring")) {
+            const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+            
+            if (!isInitialized) {
+                return "❌ Please set up your profile first with /start";
+            }
+            
+            return await RecurringExpenseService.getRecurringSummary(kv, userId);
         } else if (choice.includes("History")) {
             return await this.showExpenseHistory(kv, userId, chatId);
-        } else if (choice.includes("Settings")) {
-            return "⚙️ Settings not yet implemented.\nUse /edit_profile to update your information.";
         }
         
         return 'main_menu';
@@ -851,6 +929,8 @@ Your expense has been automatically added to your tracking!`;
         }
         
         try {
+            console.debug(`📤 SEND_MESSAGE: Sending to chat ${chatId}: ${text.substring(0, 50)}...`);
+            
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {
@@ -859,9 +939,39 @@ Your expense has been automatically added to your tracking!`;
                 body: JSON.stringify(body)
             });
             
+            // Always try to read the response body for debugging
+            const responseText = await response.text();
+            console.debug(`📥 RESPONSE: Status ${response.status}, Body: ${responseText}`);
+            
             if (!response.ok) {
-                throw new Error(`Telegram API error: ${response.status} ${response.statusText}`);
+                // Parse the response to get more detailed error information
+                let errorMessage = `Telegram API error: ${response.status} ${response.statusText}`;
+                
+                try {
+                    const errorData = JSON.parse(responseText);
+                    if (errorData && errorData.description) {
+                        errorMessage = `Telegram API error: ${errorData.description}`;
+                    }
+                } catch (parseError) {
+                    // If we can't parse the response, use the raw text
+                    errorMessage = `Telegram API error: ${response.status} ${response.statusText} - ${responseText}`;
+                }
+                
+                throw new Error(errorMessage);
             }
+            
+            // Parse successful response to check for any warnings
+            try {
+                const responseData = JSON.parse(responseText);
+                if (responseData && responseData.ok === false) {
+                    console.warn(`⚠️  WARNING: Telegram API returned ok=false: ${JSON.stringify(responseData)}`);
+                }
+            } catch (parseError) {
+                console.warn(`⚠️  WARNING: Could not parse successful response: ${responseText}`);
+            }
+            
+            console.info(`✅ MESSAGE_SENT: Successfully sent message to chat ${chatId}`);
+            
         } catch (error) {
             console.error(`❌ ERROR: Failed to send message: ${error.message}`);
             throw error;

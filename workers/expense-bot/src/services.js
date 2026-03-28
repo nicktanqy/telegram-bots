@@ -838,6 +838,8 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
         };
         
         try {
+            console.debug(`📤 SEND_MESSAGE: Sending to chat ${chatId}: ${text.substring(0, 50)}...`);
+            
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {
@@ -846,9 +848,39 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
                 body: JSON.stringify(body)
             });
             
+            // Always try to read the response body for debugging
+            const responseText = await response.text();
+            console.debug(`📥 RESPONSE: Status ${response.status}, Body: ${responseText}`);
+            
             if (!response.ok) {
-                throw new Error(`Telegram API error: ${response.status} ${response.statusText}`);
+                // Parse the response to get more detailed error information
+                let errorMessage = `Telegram API error: ${response.status} ${response.statusText}`;
+                
+                try {
+                    const errorData = JSON.parse(responseText);
+                    if (errorData && errorData.description) {
+                        errorMessage = `Telegram API error: ${errorData.description}`;
+                    }
+                } catch (parseError) {
+                    // If we can't parse the response, use the raw text
+                    errorMessage = `Telegram API error: ${response.status} ${response.statusText} - ${responseText}`;
+                }
+                
+                throw new Error(errorMessage);
             }
+            
+            // Parse successful response to check for any warnings
+            try {
+                const responseData = JSON.parse(responseText);
+                if (responseData && responseData.ok === false) {
+                    console.warn(`⚠️  WARNING: Telegram API returned ok=false: ${JSON.stringify(responseData)}`);
+                }
+            } catch (parseError) {
+                console.warn(`⚠️  WARNING: Could not parse successful response: ${responseText}`);
+            }
+            
+            console.info(`✅ MESSAGE_SENT: Successfully sent message to chat ${chatId}`);
+            
         } catch (error) {
             console.error(`❌ ERROR: Failed to send message: ${error.message}`);
             throw error;
