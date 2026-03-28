@@ -11,6 +11,10 @@ import { FLOWS, MAIN_MENU_BUTTONS, DEVELOPER_CHAT_ID } from './config.js';
 const MAIN_MENU = 0;
 const ACTIVE_FLOW = 1;
 
+// Request deduplication and timeout handling
+const REQUEST_TIMEOUT = 300000; // 5 minutes max execution time
+const REQUEST_CACHE_TTL = 60000; // 1 minute cache for deduplication
+
 /**
  * Main bot class for Cloudflare Workers
  */
@@ -97,6 +101,33 @@ export default {
             const userId = message.from.id.toString();
             const text = message.text || '';
             const chatId = message.chat.id;
+            
+            // Request deduplication - prevent processing the same message multiple times
+            const requestId = `${update.update_id}_${userId}_${Date.now()}`;
+            const cacheKey = `request_${update.update_id}_${userId}`;
+            
+            // Check if this request was already processed (within cache TTL)
+            if (env.REQUEST_CACHE) {
+                try {
+                    const cached = await env.REQUEST_CACHE.get(cacheKey);
+                    if (cached) {
+                        console.log(`🔄 DUPLICATE: Request ${update.update_id} already processed for user ${userId}`);
+                        return new Response('OK', { status: 200 });
+                    }
+                } catch (cacheError) {
+                    console.warn(`⚠️  WARNING: Request cache check failed: ${cacheError.message}`);
+                }
+            }
+            
+            // Set cache entry to prevent duplicate processing
+            if (env.REQUEST_CACHE) {
+                try {
+                    await env.REQUEST_CACHE.put(cacheKey, 'processed', { expirationTtl: REQUEST_CACHE_TTL });
+                    console.log(`💾 CACHE: Set cache for request ${update.update_id}`);
+                } catch (cacheError) {
+                    console.warn(`⚠️  WARNING: Request cache set failed: ${cacheError.message}`);
+                }
+            }
             
             // Check if KV namespaces are available
             if (!env.USER_DATA) {
@@ -900,7 +931,7 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
     },
 
     /**
-     * Send message to Telegram
+     * Send message to Telegram with improved error handling and retry logic
      * @param {Object} env - Environment variables
      * @param {number} chatId - Chat ID
      * @param {string} text - Message text
@@ -928,9 +959,13 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
             };
         }
         
+        // Rate limiting: wait between messages to avoid hitting Telegram limits
+        await this.rateLimitDelay();
+        
         try {
             console.debug(`📤 SEND_MESSAGE: Sending to chat ${chatId}: ${text.substring(0, 50)}...`);
             
+            const startTime = Date.now();
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {
@@ -938,6 +973,9 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
                 },
                 body: JSON.stringify(body)
             });
+            const responseTime = Date.now() - startTime;
+            
+            console.debug(`⏱️  RESPONSE_TIME: ${responseTime}ms`);
             
             // Always try to read the response body for debugging
             const responseText = await response.text();
@@ -951,6 +989,18 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
                     const errorData = JSON.parse(responseText);
                     if (errorData && errorData.description) {
                         errorMessage = `Telegram API error: ${errorData.description}`;
+                        
+                        // Handle specific Telegram errors
+                        if (errorData.error_code === 429) {
+                            // Rate limit exceeded - wait and retry
+                            console.warn(`⚠️  RATE_LIMIT: Telegram rate limit exceeded, waiting 2 seconds...`);
+                            await this.delay(2000);
+                            return await this.sendMessage(env, chatId, text, keyboard);
+                        } else if (errorData.error_code === 403) {
+                            // User blocked the bot
+                            console.warn(`⚠️  BLOCKED: User ${chatId} has blocked the bot`);
+                            return; // Don't throw error for blocked users
+                        }
                     }
                 } catch (parseError) {
                     // If we can't parse the response, use the raw text
@@ -970,12 +1020,30 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
                 console.warn(`⚠️  WARNING: Could not parse successful response: ${responseText}`);
             }
             
-            console.info(`✅ MESSAGE_SENT: Successfully sent message to chat ${chatId}`);
+            console.info(`✅ MESSAGE_SENT: Successfully sent message to chat ${chatId} (${responseTime}ms)`);
             
         } catch (error) {
             console.error(`❌ ERROR: Failed to send message: ${error.message}`);
             throw error;
         }
+    },
+
+    /**
+     * Simple rate limiting to avoid Telegram API limits
+     * @returns {Promise<void>}
+     */
+    async rateLimitDelay() {
+        // Wait 500ms between messages to avoid hitting rate limits
+        await this.delay(500);
+    },
+
+    /**
+     * Utility delay function
+     * @param {number} ms - Milliseconds to delay
+     * @returns {Promise<void>}
+     */
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
     },
 
     /**

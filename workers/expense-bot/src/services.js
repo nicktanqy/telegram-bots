@@ -60,7 +60,7 @@ export function parseApplePayMessage(messageText) {
  */
 export class ExpenseService {
     /**
-     * Add a new expense to user data
+     * Add a new expense to user data with timeout handling
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
      * @param {Object} expenseData - Expense data with amount, merchant, description
@@ -85,8 +85,26 @@ export class ExpenseService {
             );
             console.debug(`  Expense created: ${JSON.stringify(expense.toObject())}`);
             
-            // Get existing user data
-            const userData = await this.getUserData(kv, userId);
+            // Get existing user data with timeout handling
+            let userData;
+            try {
+                userData = await this.getUserData(kv, userId);
+            } catch (kvError) {
+                console.warn(`⚠️  KV GET failed for user ${userId}: ${kvError.message}`);
+                // Create new user data if KV operation fails
+                userData = {
+                    expenses: [],
+                    name: "User",
+                    age: 0,
+                    currentSavings: 0,
+                    monthlyBudget: 0,
+                    savingsGoal: 0,
+                    monthlyCashIncome: 0,
+                    monthlySavingsGoal: 0,
+                    isInitialized: false
+                };
+            }
+            
             if (!userData.expenses) {
                 console.debug(`  Creating new expenses list`);
                 userData.expenses = [];
@@ -94,10 +112,15 @@ export class ExpenseService {
             
             userData.expenses.push(expense.toObject());
             
-            // Save updated user data
-            await kv.put(userId, JSON.stringify(userData));
-            console.info(`✅ SAVED: Expense added - $${amount.toFixed(2)} at '${expense.merchant}'`);
-            console.debug(`  Total expenses: ${userData.expenses.length}`);
+            // Save updated user data with timeout handling
+            try {
+                await kv.put(userId, JSON.stringify(userData));
+                console.info(`✅ SAVED: Expense added - $${amount.toFixed(2)} at '${expense.merchant}'`);
+                console.debug(`  Total expenses: ${userData.expenses.length}`);
+            } catch (kvError) {
+                console.error(`❌ KV PUT failed for user ${userId}: ${kvError.message}`);
+                throw new Error(`Failed to save expense data: ${kvError.message}`);
+            }
             
             return expense;
             
