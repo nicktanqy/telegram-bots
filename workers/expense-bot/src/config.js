@@ -463,6 +463,8 @@ export const MAIN_MENU_BUTTONS = [
     ["📊 View Stats", "💰 Add Expense"],
     ["📈 Progress", "📊 Breakdown"],
     ["🔄 Recurring", "📋 History"],
+    ["✏️ Edit Expense", "➕ Add Recurring"],
+    ["⚙️ Edit Profile"],
 ];
 
 // Settings

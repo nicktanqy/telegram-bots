@@ -277,6 +277,15 @@ Your expense has been automatically added to your tracking!`;
                         if (responseText === 'main_menu') {
                             responseText = 'What would you like to do?';
                             keyboard = this.createKeyboard(MAIN_MENU_BUTTONS);
+                        } else if (responseText === 'edit_expense') {
+                            // Handle edit expense from menu button
+                            await this.editExpense(env, userId, chatId);
+                            return new Response('OK', { status: 200 });
+                        } else if (responseText === 'edit_profile') {
+                            // Handle edit profile from menu button
+                            responseText = await this.editProfile(env, userId, chatId);
+                            // editProfile sends its own message via sendMessageWithInlineKeyboard, so return early
+                            return new Response('OK', { status: 200 });
                         }
                     }
                 }
@@ -816,6 +825,28 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
             return await RecurringExpenseService.getRecurringSummary(kv, userId);
         } else if (choice.includes("History")) {
             return await this.showExpenseHistory(kv, userId, chatId);
+        } else if (choice.includes("Edit Expense")) {
+            // Start edit expense flow - need to get env from context
+            // Since handleMenuChoice doesn't have env, we need to handle this differently
+            // Return a special marker that will be handled in handleWebhook
+            return 'edit_expense';
+        } else if (choice.includes("Add Recurring")) {
+            const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+            
+            if (!isInitialized) {
+                return "❌ Please set up your profile first with /start";
+            }
+            
+            // Start recurring template setup flow
+            const conversationHandler = new GenericConversationHandler(FLOWS);
+            await conversationHandler.startFlow(kv, userId, 'recurring_template');
+            
+            const flow = FLOWS.recurring_template;
+            const firstStep = flow.getStep(0);
+            return `${flow.welcomeMessage}\n\n${firstStep.formField.prompt}`;
+        } else if (choice.includes("Edit Profile")) {
+            // Return a special marker that will be handled in handleWebhook
+            return 'edit_profile';
         }
         
         return 'main_menu';
