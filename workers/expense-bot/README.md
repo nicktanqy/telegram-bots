@@ -161,15 +161,66 @@ wrangler publish --env staging
 ```
 workers/expense-bot/
 ├── src/
-│   ├── index.js          # Main bot application
-│   ├── models.js         # Data models (Expense, FormField, etc.)
-│   ├── services.js       # Business logic services
-│   ├── conversations.js  # Conversation handling framework
-│   └── config.js         # Bot configuration and flows
-├── package.json          # Dependencies and scripts
-├── wrangler.toml         # Cloudflare Workers configuration
-└── README.md            # This file
+│   ├── index.js              # Main entry point (request routing)
+│   ├── models.js             # Data models (Expense, FormField, ConversationFlow)
+│   ├── services.js           # Business logic services
+│   │   └── parseApplePayMessage()
+│   │   └── ExpenseService
+│   │   └── RecurringExpenseService
+│   │   └── ProfileService
+│   ├── conversations.js      # Conversation handling framework
+│   │   └── ConversationContext
+│   │   └── GenericConversationHandler
+│   ├── config.js             # Bot configuration and flow definitions
+│   ├── services/
+│   │   └── telegram.js       # Telegram Bot API service (TelegramService)
+│   ├── handlers/
+│   │   ├── commands.js       # Command handlers (/start, /menu, /stats, etc.)
+│   │   ├── callbacks.js      # Callback query handlers (inline keyboards, edit expense)
+│   │   └── menu.js           # Menu choice handler
+│   └── utils/
+│       └── messageBuilder.js # Centralized message formatting utilities
+├── tests/
+│   ├── services.test.js      # Services test suite
+│   └── apple-pay.test.js     # Apple Pay parsing tests
+├── scripts/
+│   ├── setup-kv.js           # KV namespace setup script
+│   ├── test-bot.js           # Bot testing script
+│   └── migrate-data.js       # Data migration script
+├── package.json              # Dependencies and scripts
+├── wrangler.toml             # Cloudflare Workers configuration
+└── README.md                 # This file
 ```
+
+### Architecture Overview
+
+The codebase follows **clean code** and **SOLID principles**:
+
+1. **Separation of Concerns**: Each module has a single responsibility
+   - `handlers/` - Request handling logic
+   - `services/` - Business logic
+   - `utils/` - Shared utilities
+   - `models.js` - Data structures
+
+2. **DRY Principle**: Eliminated code duplication
+   - `messageBuilder.js` - Centralized message formatting
+   - `TelegramService` - Single source for all Telegram API calls
+
+3. **Dependency Injection**: Services are imported and used where needed
+
+4. **Testability**: Modular structure enables easy unit testing
+
+### Architecture Principles
+
+The refactored codebase follows **clean code** and **SOLID principles**:
+
+| Principle | Implementation |
+|-----------|----------------|
+| **Single Responsibility** | Each module handles one concern (commands, callbacks, Telegram API, etc.) |
+| **DRY** | Shared utilities (`messageBuilder.js`, `TelegramService`) eliminate duplication |
+| **Open/Closed** | New commands can be added to `handlers/commands.js` without modifying core logic |
+| **Dependency Injection** | Services are imported where needed, enabling easy mocking for tests |
+| **Testability** | Modular structure with isolated units enables comprehensive testing |
 
 ## Migration Notes
 
