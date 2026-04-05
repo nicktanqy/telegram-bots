@@ -12,8 +12,7 @@ import {
     buildBreakdownMessage,
     buildApplePayConfirmation,
     buildQuickExpenseConfirmation,
-    buildExpenseHistoryMessage,
-    buildMonthlyReportMessage
+    buildExpenseHistoryMessage
 } from '../utils/messageBuilder.js';
 
 // Conversation states
@@ -37,8 +36,6 @@ function getCurrentMonthName() {
  */
 export async function handleStart(env, userId, chatId) {
     const kv = env.USER_DATA;
-    console.log(`👤 START: User '${userId}' started conversation`);
-
     const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
 
     if (isInitialized) {
@@ -386,9 +383,6 @@ export async function handleApplePayMessage(env, userId, chatId, text) {
         return null; // Not an Apple Pay message
     }
 
-    console.log(`🍎 APPLE_PAY: Detected Apple Pay transaction from user '${userId}'`);
-    console.log(`📦 APPLE_PAY_DATA: ${JSON.stringify(applePayData)}`);
-
     // Ensure user profile is initialized
     const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
     if (!isInitialized) {
@@ -404,7 +398,6 @@ export async function handleApplePayMessage(env, userId, chatId, text) {
         };
 
         const expense = await ExpenseService.addExpense(kv, userId, expenseData);
-        console.log(`✅ APPLE_PAY_SAVED: Expense recorded - $${expense.amount.toFixed(2)} at ${applePayData.merchant}`);
 
         return { text: buildApplePayConfirmation({
             amount: expense.amount,

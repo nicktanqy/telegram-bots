@@ -83,7 +83,6 @@ async function advanceStep(kv, userId) {
     const currentStep = context?.currentStep || 0;
     context.currentStep = currentStep + 1;
     await kv.put(`${userId}:context`, JSON.stringify(context));
-    console.debug(`➡️  STATE: Advanced step: ${currentStep} → ${currentStep + 1}`);
 }
 
 /**
@@ -108,13 +107,9 @@ function getCompletionCallback(flowName) {
  * @param {Object} flowData - Flow data
  */
 async function onSetupComplete(kv, userId, flowData) {
-    console.log(`✅ CALLBACK: Setup flow completed for user ${userId}`);
-    console.log(`📦 SETUP_DATA: ${JSON.stringify(flowData)}`);
-
     // Import ProfileService dynamically to avoid circular dependency
     const { ProfileService } = await import('../services.js');
     await ProfileService.initializeProfile(kv, userId, flowData);
-    console.log(`✅ PROFILE: User profile initialized successfully`);
 }
 
 /**
@@ -124,12 +119,8 @@ async function onSetupComplete(kv, userId, flowData) {
  * @param {Object} flowData - Flow data
  */
 async function onExpenseComplete(kv, userId, flowData) {
-    console.log(`✅ CALLBACK: Expense tracking flow completed for user ${userId}`);
-    console.log(`📦 EXPENSE_DATA: ${JSON.stringify(flowData)}`);
-
     try {
         await ExpenseService.addExpense(kv, userId, flowData);
-        console.log(`✅ SAVED: Expense recorded successfully`);
     } catch (error) {
         console.error(`❌ ERROR: Failed to save expense: ${error.message}`);
     }
@@ -142,9 +133,6 @@ async function onExpenseComplete(kv, userId, flowData) {
  * @param {Object} flowData - Flow data
  */
 async function onEditProfileComplete(kv, userId, flowData) {
-    console.log(`✅ CALLBACK: Edit profile flow completed for user ${userId}`);
-    console.log(`📦 PROFILE_DATA: ${JSON.stringify(flowData)}`);
-
     try {
         const userData = await ExpenseService.getUserData(kv, userId);
         // Update only the fields that were provided
@@ -156,7 +144,6 @@ async function onEditProfileComplete(kv, userId, flowData) {
         if (flowData.monthly_savings_goal) userData.monthlySavingsGoal = parseFloat(flowData.monthly_savings_goal);
 
         await ExpenseService.saveUserData(kv, userId, userData);
-        console.log(`✅ SAVED: Profile updated successfully`);
     } catch (error) {
         console.error(`❌ ERROR: Failed to update profile: ${error.message}`);
     }
@@ -169,9 +156,6 @@ async function onEditProfileComplete(kv, userId, flowData) {
  * @param {Object} flowData - Flow data
  */
 async function onRecurringTemplateComplete(kv, userId, flowData) {
-    console.log(`✅ CALLBACK: Recurring template flow completed for user ${userId}`);
-    console.log(`📦 TEMPLATE_DATA: ${JSON.stringify(flowData)}`);
-
     try {
         const { RecurringExpenseService } = await import('../services.js');
         const templateData = {
@@ -184,7 +168,6 @@ async function onRecurringTemplateComplete(kv, userId, flowData) {
         };
 
         await RecurringExpenseService.addRecurringTemplate(kv, userId, templateData);
-        console.log(`✅ TEMPLATE: Recurring template '${templateData.name}' created successfully`);
     } catch (error) {
         console.error(`❌ ERROR: Failed to create recurring template: ${error.message}`);
     }
@@ -197,8 +180,6 @@ async function onRecurringTemplateComplete(kv, userId, flowData) {
  * @param {number} chatId - Chat ID
  */
 export async function handleEditExpense(env, userId, chatId) {
-    console.log(`✏️ EDIT_EXPENSE: User '${userId}' requested to edit expense`);
-
     const isInitialized = await (await import('../services.js')).ProfileService.isProfileInitialized(env.USER_DATA, userId);
     if (!isInitialized) {
         await TelegramService.sendMessage(env, chatId, "❌ Please set up your profile first with /start");
@@ -228,8 +209,6 @@ export async function handleCallbackQuery(env, callbackQuery) {
         const chatId = callbackQuery.message.chat.id;
         const messageId = callbackQuery.message.message_id;
         const data = callbackQuery.data;
-
-        console.log(`🔘 CALLBACK: User '${userId}' triggered callback: '${data}'`);
 
         // Answer the callback query immediately to remove loading state
         await TelegramService.answerCallbackQuery(env, callbackQuery.id);
@@ -424,10 +403,8 @@ async function handleEditCancel(env, userId, chatId) {
  * @param {string} data - Callback data
  */
 async function handleSkipField(env, userId, chatId, data) {
-    const fieldKey = data.split(':')[1];
-    console.log(`⏭️ SKIP: User '${userId}' skipping field '${fieldKey}'`);
-
-    const currentFlow = await getCurrentFlow(env.USER_DATA, userId);
+        const fieldKey = data.split(':')[1];
+        const currentFlow = await getCurrentFlow(env.USER_DATA, userId);
     if (!currentFlow) {
         await TelegramService.sendMessage(env, chatId, "❌ No active flow to skip in.");
         return;

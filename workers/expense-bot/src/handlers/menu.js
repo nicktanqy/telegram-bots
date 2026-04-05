@@ -48,7 +48,6 @@ function getCurrentMonthName() {
  */
 export async function handleMenuChoice(env, userId, chatId, choice) {
     const kv = env.USER_DATA;
-    console.log(`🎯 MENU: User '${userId}' selected: '${choice}'`);
 
     // Check for Apple Pay transaction message first
     const applePayResult = await handleApplePayFromMenu(env, userId, chatId, choice);
@@ -96,12 +95,8 @@ async function handleApplePayFromMenu(env, userId, chatId, choice) {
         return null;
     }
 
-    console.log(`🍎 APPLE_PAY: Detected Apple Pay transaction from user '${userId}'`);
-    console.log(`📦 APPLE_PAY_DATA: ${JSON.stringify(applePayData)}`);
-
     const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
     if (!isInitialized) {
-        console.log(`⚠️  INFO: User not initialized, cannot process Apple Pay transaction`);
         return { text: "❌ Please set up your profile first with /start before using Apple Pay integration." };
     }
 
@@ -113,7 +108,6 @@ async function handleApplePayFromMenu(env, userId, chatId, choice) {
         };
 
         const expense = await ExpenseService.addExpense(kv, userId, expenseData);
-        console.log(`✅ APPLE_PAY_SAVED: Expense recorded - $${expense.amount.toFixed(2)} at ${applePayData.merchant}`);
 
         return { text: buildApplePayConfirmation({
             amount: expense.amount,

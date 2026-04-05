@@ -110,8 +110,6 @@ export default {
     async handleWebhook(request, env) {
         try {
             const body = await request.json();
-            console.log('📨 WEBHOOK: Received update:', JSON.stringify(body, null, 2));
-
             const update = body;
 
             // Handle callback queries FIRST (before checking for message)
@@ -123,7 +121,6 @@ export default {
             const message = update.message || update.edited_message;
 
             if (!message) {
-                console.log('ℹ️  INFO: No message in update, ignoring');
                 return new Response('OK', { status: 200 });
             }
 
@@ -194,7 +191,6 @@ export default {
             try {
                 const cached = await env.REQUEST_CACHE.get(cacheKey);
                 if (cached) {
-                    console.log(`🔄 DUPLICATE: Request ${updateId} already processed for user ${userId}`);
                     return false;
                 }
             } catch (cacheError) {
@@ -206,7 +202,6 @@ export default {
         if (env.REQUEST_CACHE) {
             try {
                 await env.REQUEST_CACHE.put(cacheKey, 'processed', { expirationTtl: REQUEST_CACHE_TTL });
-                console.log(`💾 CACHE: Set cache for request ${updateId}`);
             } catch (cacheError) {
                 console.warn(`⚠️  WARNING: Request cache set failed: ${cacheError.message}`);
             }

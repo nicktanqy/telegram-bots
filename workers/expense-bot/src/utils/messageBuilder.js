@@ -127,65 +127,6 @@ export function buildExpenseHistoryMessage(expensesByMerchant) {
 }
 
 /**
- * Build a profile summary message
- * @param {Object} userData - User data object
- * @param {Object} journeyInfo - Journey progress information
- * @param {number} totalMonthlyExpenses - Total monthly expenses
- * @param {number} budgetRemaining - Budget remaining
- * @param {number} goalProgress - Savings goal progress percentage
- * @returns {string} Formatted profile summary
- */
-export function buildProfileSummaryMessage(userData, journeyInfo, totalMonthlyExpenses, budgetRemaining, goalProgress) {
-    let summary = `
-📊 **Your Financial Profile**
-${SEPARATOR}
-Name: ${userData.name || 'User'}
-Age: ${userData.age || 0}
-Current Savings: $${(userData.currentSavings || 0).toFixed(2)}
-Monthly Budget: $${(userData.monthlyBudget || 0).toFixed(2)}
-Savings Goal: $${(userData.savingsGoal || 0).toFixed(2)} (Progress: ${goalProgress.toFixed(1)}%)`;
-
-    if (userData.monthsToGoal > 0) {
-        summary += `
-Months to Goal: ${userData.monthsToGoal}
-Monthly Savings Needed: $${journeyInfo.monthlySavingsNeeded.toFixed(2)}
-Journey Progress: ${journeyInfo.journeyProgress.toFixed(1)}%`;
-    }
-
-    summary += `
-${SEPARATOR}
-Total Monthly Expenses: $${totalMonthlyExpenses.toFixed(2)}
-Budget Remaining: $${budgetRemaining.toFixed(2)}`;
-
-    return summary;
-}
-
-/**
- * Build a monthly report message
- * @param {string} monthName - Name of the month
- * @param {number} totalExpenses - Total expenses
- * @param {Object} expensesByCategory - Expenses grouped by category
- * @returns {string} Formatted report message
- */
-export function buildMonthlyReportMessage(monthName, totalExpenses, expensesByCategory) {
-    let report = `📊 **Monthly Report - ${monthName}**
-${SEPARATOR}
-Total Expenses: $${totalExpenses.toFixed(2)}`;
-
-    if (Object.keys(expensesByCategory).length > 0) {
-        report += `\n\n**Expense Breakdown:**`;
-        for (const [category, expenses] of Object.entries(expensesByCategory)) {
-            const categoryTotal = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-            report += `\n• ${capitalizeFirst(category)}: $${categoryTotal.toFixed(2)}`;
-        }
-    }
-
-    report += `\n\nKeep tracking your expenses to reach your savings goals!`;
-
-    return report;
-}
-
-/**
  * Build edit expense selection message
  * @param {Array} expenses - Array of recent expenses
  * @returns {Object} Object with message text and inline keyboard
