@@ -65,14 +65,14 @@ export async function handleMenuChoice(env, userId, chatId, choice) {
         return await handleMenuProgress(kv, userId, chatId);
     } else if (choice.includes("Breakdown")) {
         return await handleMenuBreakdown(kv, userId, chatId);
+    } else if (choice.includes("Add Recurring")) {
+        return await handleMenuAddRecurring(kv, userId, chatId);
     } else if (choice.includes("Recurring")) {
         return await handleMenuRecurring(kv, userId, chatId);
     } else if (choice.includes("History")) {
         return await handleMenuHistory(kv, userId, chatId);
     } else if (choice.includes("Edit Expense")) {
         return { text: 'edit_expense' }; // Special marker for index.js to handle
-    } else if (choice.includes("Add Recurring")) {
-        return await handleMenuAddRecurring(kv, userId, chatId);
     } else if (choice.includes("Edit Profile")) {
         return { text: 'edit_profile' }; // Special marker for index.js to handle
     }
