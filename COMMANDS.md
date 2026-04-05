@@ -84,6 +84,22 @@ All commands start with `/` and can be used from any state of the bot. They prov
 
 ---
 
+### `/edit_expense`
+**Purpose:** Edit or delete an existing expense  
+**Usage:** Type `/edit_expense` to view and edit your recent expenses
+
+**Behavior:**
+- Requires initialized profile
+- Shows a list of your 10 most recent expenses with inline buttons
+- Click on an expense to edit it
+- You can edit: Amount, Date, Description, Category
+- You can also delete the expense
+- After editing one field, you can continue editing other fields or exit
+
+**Returns:** ACTIVE_FLOW (starts edit expense flow with inline keyboards)
+
+---
+
 ### `/show_data` (Developer Only)
 **Purpose:** Dump all user data for debugging  
 **Usage:** Type `/show_data` (authorized users only)

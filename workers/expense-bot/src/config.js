@@ -209,7 +209,7 @@ function createExpenseTrackingFlow() {
                 new FormField(
                     "description",
                     "Description",
-                    "Describe the expense (optional - press enter to skip)",
+                    "Describe the expense",
                     FieldType.TEXT,
                     (value) => {
                         if (value && value.length > 200) {
@@ -217,7 +217,8 @@ function createExpenseTrackingFlow() {
                         }
                         return { isValid: true, errorMessage: null };
                     },
-                    false
+                    false,
+                    true  // allowSkip
                 )
             ),
         ]
@@ -232,7 +233,7 @@ function createEditProfileFlow() {
     return new ConversationFlow(
         "edit_profile",
         "Edit user profile",
-        "Let's update your profile information.",
+        "Let's update your profile information. Tap ⏭️ Skip to keep the current value.",
         "✅ Profile updated successfully!",
         [
             new ConversationField(
@@ -240,7 +241,7 @@ function createEditProfileFlow() {
                 new FormField(
                     "name",
                     "Name",
-                    "What is your name? (press enter to keep current)",
+                    "What is your name?",
                     FieldType.TEXT,
                     (value) => {
                         if (value && value.trim().length > 0 && value.trim().length < 2) {
@@ -248,7 +249,8 @@ function createEditProfileFlow() {
                         }
                         return { isValid: true, errorMessage: null };
                     },
-                    false
+                    false,
+                    true  // allowSkip
                 )
             ),
             new ConversationField(
@@ -256,7 +258,7 @@ function createEditProfileFlow() {
                 new FormField(
                     "current_savings",
                     "Current Savings",
-                    "What is your current savings? (press enter to keep current)",
+                    "What is your current savings?",
                     FieldType.CURRENCY,
                     (value) => {
                         if (!value) return { isValid: true, errorMessage: null };
@@ -266,7 +268,8 @@ function createEditProfileFlow() {
                         }
                         return { isValid: true, errorMessage: null };
                     },
-                    false
+                    false,
+                    true  // allowSkip
                 )
             ),
             new ConversationField(
@@ -274,7 +277,7 @@ function createEditProfileFlow() {
                 new FormField(
                     "monthly_budget",
                     "Monthly Budget",
-                    "What is your monthly budget? (press enter to keep current)",
+                    "What is your monthly budget?",
                     FieldType.CURRENCY,
                     (value) => {
                         if (!value) return { isValid: true, errorMessage: null };
@@ -284,7 +287,8 @@ function createEditProfileFlow() {
                         }
                         return { isValid: true, errorMessage: null };
                     },
-                    false
+                    false,
+                    true  // allowSkip
                 )
             ),
             new ConversationField(
@@ -292,7 +296,7 @@ function createEditProfileFlow() {
                 new FormField(
                     "savings_goal",
                     "Savings Goal",
-                    "What is your savings goal amount? (press enter to keep current)",
+                    "What is your savings goal amount?",
                     FieldType.CURRENCY,
                     (value) => {
                         if (!value) return { isValid: true, errorMessage: null };
@@ -302,7 +306,8 @@ function createEditProfileFlow() {
                         }
                         return { isValid: true, errorMessage: null };
                     },
-                    false
+                    false,
+                    true  // allowSkip
                 )
             ),
             new ConversationField(
@@ -310,7 +315,7 @@ function createEditProfileFlow() {
                 new FormField(
                     "monthly_cash_income",
                     "Monthly Cash Income",
-                    "What is your monthly cash income? (press enter to keep current)",
+                    "What is your monthly cash income?",
                     FieldType.CURRENCY,
                     (value) => {
                         if (!value) return { isValid: true, errorMessage: null };
@@ -320,7 +325,8 @@ function createEditProfileFlow() {
                         }
                         return { isValid: true, errorMessage: null };
                     },
-                    false
+                    false,
+                    true  // allowSkip
                 )
             ),
             new ConversationField(
@@ -328,7 +334,7 @@ function createEditProfileFlow() {
                 new FormField(
                     "monthly_savings_goal",
                     "Monthly Savings Goal",
-                    "What is your monthly savings goal? (press enter to keep current)",
+                    "What is your monthly savings goal?",
                     FieldType.CURRENCY,
                     (value) => {
                         if (!value) return { isValid: true, errorMessage: null };
@@ -338,7 +344,8 @@ function createEditProfileFlow() {
                         }
                         return { isValid: true, errorMessage: null };
                     },
-                    false
+                    false,
+                    true  // allowSkip
                 )
             ),
         ]

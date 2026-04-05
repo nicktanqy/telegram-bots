@@ -91,6 +91,14 @@ export default {
             
             // Extract update information
             const update = body;
+            
+            // Handle callback queries FIRST (before checking for message)
+            // This is critical because callback queries have message nested inside callback_query.message
+            if (update.callback_query) {
+                await this.handleCallbackQuery(env, update.callback_query);
+                return new Response('OK', { status: 200 });
+            }
+            
             const message = update.message || update.edited_message;
             
             if (!message) {
@@ -155,7 +163,7 @@ export default {
             } else if (text === '/cancel') {
                 responseText = await this.cancel(env.USER_DATA, userId, chatId);
             } else if (text === '/edit_profile') {
-                responseText = await this.editProfile(env.USER_DATA, userId, chatId);
+                responseText = await this.editProfile(env, userId, chatId);
             } else if (text === '/progress') {
                 responseText = await this.progress(env.USER_DATA, userId, chatId);
             } else if (text === '/breakdown') {
@@ -172,10 +180,6 @@ export default {
                 responseText = await this.showData(env.USER_DATA, userId, chatId);
             } else if (text === '/edit_expense') {
                 await this.editExpense(env, userId, chatId);
-                return new Response('OK', { status: 200 });
-            } else if (update.callback_query) {
-                // Handle callback queries from inline keyboards
-                await this.handleCallbackQuery(env, update.callback_query);
                 return new Response('OK', { status: 200 });
             } else {
                 // Check for Apple Pay transaction message even during active flows
@@ -223,7 +227,7 @@ Your expense has been automatically added to your tracking!`;
                     // Check if user is in edit mode (editing an expense field)
                     const editContext = await this.getContext(env.USER_DATA, userId);
                     if (editContext.editExpenseField) {
-                        await this.handleEditInput(env.USER_DATA, userId, chatId, text);
+                        await this.handleEditInput(env, userId, chatId, text);
                         return new Response('OK', { status: 200 });
                     }
                     
@@ -251,6 +255,15 @@ Your expense has been automatically added to your tracking!`;
                             
                             if (nextStep) {
                                 responseText = nextStep.formField.prompt;
+                                
+                                // If field allows skip, send with inline keyboard
+                                if (nextStep.formField.allowSkip) {
+                                    const inlineKeyboard = [
+                                        [{ text: "⏭️ Skip - Keep Current", callback_data: `skip_field:${nextStep.key}` }]
+                                    ];
+                                    await this.sendMessageWithInlineKeyboard(env, chatId, responseText, inlineKeyboard);
+                                    return new Response('OK', { status: 200 });
+                                }
                             } else {
                                 // No more steps, complete the flow
                                 responseText = flow.completionMessage;
@@ -409,25 +422,35 @@ Your expense has been automatically added to your tracking!`;
 
     /**
      * Handle /edit_profile command
-     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {Object} env - Environment variables
      * @param {string} userId - User ID
      * @param {number} chatId - Chat ID
      * @returns {Promise<string>} Response text
      */
-    async editProfile(kv, userId, chatId) {
-        const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+    async editProfile(env, userId, chatId) {
+        const isInitialized = await ProfileService.isProfileInitialized(env.USER_DATA, userId);
         
         if (!isInitialized) {
             return "❌ Please set up your profile first with /start";
         }
         
         const conversationHandler = new GenericConversationHandler(FLOWS);
-        await conversationHandler.startFlow(kv, userId, 'edit_profile');
+        await conversationHandler.startFlow(env.USER_DATA, userId, 'edit_profile');
         
         const flow = FLOWS.edit_profile;
         const firstStep = flow.getStep(0);
+        const message = `${flow.welcomeMessage}\n\n${firstStep.formField.prompt}`;
         
-        return `${flow.welcomeMessage}\n\n${firstStep.formField.prompt}`;
+        // If first field allows skip, send with inline keyboard
+        if (firstStep.formField.allowSkip) {
+            const inlineKeyboard = [
+                [{ text: "⏭️ Skip - Keep Current", callback_data: `skip_field:${firstStep.key}` }]
+            ];
+            await this.sendMessageWithInlineKeyboard(env, chatId, message, inlineKeyboard);
+            return null; // Return null since we're sending via sendMessageWithInlineKeyboard
+        }
+        
+        return message;
     },
 
     /**
@@ -1260,6 +1283,31 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
     },
 
     /**
+     * Get flow data from KV context
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @returns {Promise<Object>} Flow data object
+     */
+    async getFlowData(kv, userId) {
+        const context = await this.getContext(kv, userId);
+        return context?.flowData || {};
+    },
+
+    /**
+     * Advance to the next step in the current flow
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @returns {Promise<void>}
+     */
+    async advanceStep(kv, userId) {
+        const context = await this.getContext(kv, userId);
+        const currentStep = context?.currentStep || 0;
+        context.currentStep = currentStep + 1;
+        await kv.put(`${userId}:context`, JSON.stringify(context));
+        console.debug(`➡️  STATE: Advanced step: ${currentStep} → ${currentStep + 1}`);
+    },
+
+    /**
      * Handle /edit_expense command
      * @param {Object} env - Environment variables
      * @param {string} userId - User ID
@@ -1506,6 +1554,67 @@ Removed: $${deleted.amount.toFixed(2)} at ${deleted.merchant} on ${new Date(dele
                 return;
             }
             
+            if (data.startsWith('skip_field:')) {
+                // User wants to skip the current field in a conversation flow
+                const fieldKey = data.split(':')[1];
+                console.log(`⏭️ SKIP: User '${userId}' skipping field '${fieldKey}'`);
+                
+                const currentFlow = await this.getCurrentFlow(env.USER_DATA, userId);
+                if (!currentFlow) {
+                    await this.sendMessage(env, chatId, "❌ No active flow to skip in.");
+                    return;
+                }
+                
+                const flow = FLOWS[currentFlow];
+                const currentStep = await this.getCurrentStep(env.USER_DATA, userId);
+                const totalSteps = flow.stepCount();
+                
+                // Check if flow is complete after skipping
+                if (currentStep + 1 >= totalSteps) {
+                    // Flow completed, call completion callback
+                    const flowData = await this.getFlowData(env.USER_DATA, userId);
+                    const callback = this.getCompletionCallback(currentFlow);
+                    
+                    if (callback) {
+                        await callback(env.USER_DATA, userId, flowData);
+                    }
+                    
+                    await this.clearFlow(env.USER_DATA, userId);
+                    await this.sendMessage(env, chatId, "✅ Operation completed successfully!");
+                    return;
+                }
+                
+                // Advance to next step
+                await this.advanceStep(env.USER_DATA, userId);
+                const nextStep = await this.getCurrentStep(env.USER_DATA, userId);
+                const nextStepObj = flow.getStep(nextStep);
+                
+                if (nextStepObj) {
+                    // Send next prompt with skip button if applicable
+                    if (nextStepObj.formField.allowSkip) {
+                        const inlineKeyboard = [
+                            [{ text: "⏭️ Skip - Keep Current", callback_data: `skip_field:${nextStepObj.key}` }]
+                        ];
+                        await this.sendMessageWithInlineKeyboard(env, chatId, nextStepObj.formField.prompt, inlineKeyboard);
+                    } else {
+                        await this.sendMessage(env, chatId, nextStepObj.formField.prompt);
+                    }
+                } else {
+                    // No more steps, complete the flow
+                    const flowData = await this.getFlowData(env.USER_DATA, userId);
+                    const callback = this.getCompletionCallback(currentFlow);
+                    
+                    if (callback) {
+                        await callback(env.USER_DATA, userId, flowData);
+                    }
+                    
+                    await this.clearFlow(env.USER_DATA, userId);
+                    await this.sendMessage(env, chatId, flow.completionMessage);
+                }
+                
+                return;
+            }
+            
         } catch (error) {
             console.error(`❌ ERROR in handleCallbackQuery: ${error.message}`);
         }
@@ -1519,7 +1628,8 @@ Removed: $${deleted.amount.toFixed(2)} at ${deleted.merchant} on ${new Date(dele
      * @param {string} text - User's text input
      * @returns {Promise<void>}
      */
-    async handleEditInput(kv, userId, chatId, text) {
+    async handleEditInput(env, userId, chatId, text) {
+        const kv = env.USER_DATA;
         const context = await this.getContext(kv, userId);
         const field = context.editExpenseField;
         const expense = context.editExpenseData;
@@ -1536,11 +1646,11 @@ Removed: $${deleted.amount.toFixed(2)} at ${deleted.merchant} on ${new Date(dele
                 case 'amount':
                     const amount = parseFloat(text);
                     if (isNaN(amount) || amount <= 0) {
-                        await this.sendMessage(kv, chatId, "❌ Invalid amount. Please enter a positive number (e.g., 75.50):");
+                        await this.sendMessage(env, chatId, "❌ Invalid amount. Please enter a positive number (e.g., 75.50):");
                         return;
                     }
                     if (amount > 10000) {
-                        await this.sendMessage(kv, chatId, "❌ Amount seems too high. Please enter a valid amount:");
+                        await this.sendMessage(env, chatId, "❌ Amount seems too high. Please enter a valid amount:");
                         return;
                     }
                     updates.amount = amount;
@@ -1549,13 +1659,13 @@ Removed: $${deleted.amount.toFixed(2)} at ${deleted.merchant} on ${new Date(dele
                 case 'date':
                     const dateMatch = text.match(/^\d{4}-\d{2}-\d{2}$/);
                     if (!dateMatch) {
-                        await this.sendMessage(kv, chatId, "❌ Invalid date format. Please use YYYY-MM-DD (e.g., 2024-01-20):");
+                        await this.sendMessage(env, chatId, "❌ Invalid date format. Please use YYYY-MM-DD (e.g., 2024-01-20):");
                         return;
                     }
                     // Validate the date is real
                     const dateObj = new Date(text);
                     if (isNaN(dateObj.getTime())) {
-                        await this.sendMessage(kv, chatId, "❌ Invalid date. Please enter a valid date:");
+                        await this.sendMessage(env, chatId, "❌ Invalid date. Please enter a valid date:");
                         return;
                     }
                     updates.timestamp = dateObj.toISOString();
@@ -1563,7 +1673,7 @@ Removed: $${deleted.amount.toFixed(2)} at ${deleted.merchant} on ${new Date(dele
                     
                 case 'description':
                     if (text.length > 200) {
-                        await this.sendMessage(kv, chatId, "❌ Description too long. Please keep it under 200 characters:");
+                        await this.sendMessage(env, chatId, "❌ Description too long. Please keep it under 200 characters:");
                         return;
                     }
                     updates.description = text.trim();
@@ -1572,7 +1682,7 @@ Removed: $${deleted.amount.toFixed(2)} at ${deleted.merchant} on ${new Date(dele
                 case 'category':
                     const category = text.toLowerCase().trim();
                     if (category.length < 2) {
-                        await this.sendMessage(kv, chatId, "❌ Category too short. Please enter a valid category:");
+                        await this.sendMessage(env, chatId, "❌ Category too short. Please enter a valid category:");
                         return;
                     }
                     updates.category = category;
@@ -1583,11 +1693,13 @@ Removed: $${deleted.amount.toFixed(2)} at ${deleted.merchant} on ${new Date(dele
             const index = context.editExpenseIndex;
             const updated = await ExpenseService.updateExpense(kv, userId, index, updates);
             
-            // Clear the edit field
+            // Clear the entire edit context
             delete context.editExpenseField;
+            delete context.editExpenseData;
+            delete context.editExpenseIndex;
             await kv.put(`${userId}:context`, JSON.stringify(context));
             
-            // Show confirmation
+            // Show confirmation message
             const date = new Date(updated.timestamp);
             const dateStr = date.toISOString().split('T')[0];
             const desc = updated.description || '(No description)';
@@ -1600,29 +1712,12 @@ Removed: $${deleted.amount.toFixed(2)} at ${deleted.merchant} on ${new Date(dele
 📝 Description: ${desc}
 🏷️ Category: ${cat}
 
-What would you like to do?`;
+Your expense has been successfully updated!`;
             
-            const inlineKeyboard = [
-                [
-                    { text: "💰 Amount", callback_data: "edit_field:amount" },
-                    { text: "📅 Date", callback_data: "edit_field:date" }
-                ],
-                [
-                    { text: "📝 Description", callback_data: "edit_field:description" },
-                    { text: "🏷️ Category", callback_data: "edit_field:category" }
-                ],
-                [
-                    { text: "🗑️ Delete", callback_data: "edit_delete" }
-                ],
-                [
-                    { text: "✅ Done", callback_data: "edit_cancel_menu" }
-                ]
-            ];
-            
-            await this.sendMessageWithInlineKeyboard(kv, chatId, message, inlineKeyboard);
+            await this.sendMessage(env, chatId, message);
             
         } catch (error) {
-            await this.sendMessage(kv, chatId, `❌ Error updating expense: ${error.message}`);
+            await this.sendMessage(env, chatId, `❌ Error updating expense: ${error.message}`);
         }
     }
 };

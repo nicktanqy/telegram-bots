@@ -16,13 +16,14 @@ export const FieldType = {
  * Represents a single form field in a conversation
  */
 export class FormField {
-    constructor(key, displayName, prompt, fieldType = FieldType.TEXT, validationFn = null, required = true) {
+    constructor(key, displayName, prompt, fieldType = FieldType.TEXT, validationFn = null, required = true, allowSkip = false) {
         this.key = key;
         this.displayName = displayName;
         this.prompt = prompt;
         this.fieldType = fieldType;
         this.validationFn = validationFn;
         this.required = required;
+        this.allowSkip = allowSkip; // If true, shows a skip button instead of "press enter"
     }
 
     /**
