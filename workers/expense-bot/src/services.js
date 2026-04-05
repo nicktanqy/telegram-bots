@@ -231,6 +231,114 @@ export class ExpenseService {
             throw error;
         }
     }
+
+    /**
+     * Get recent expenses for a user (sorted by most recent first)
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {number} limit - Maximum number of expenses to return
+     * @returns {Promise<Object[]>} Array of expense objects with index
+     */
+    static async getRecentExpenses(kv, userId, limit = 10) {
+        const userData = await this.getUserData(kv, userId);
+        const expenses = userData.expenses || [];
+        
+        // Sort by timestamp (most recent first) and limit
+        const sortedExpenses = expenses
+            .map((expense, index) => ({...expense, originalIndex: index}))
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .slice(0, limit);
+        
+        return sortedExpenses;
+    }
+
+    /**
+     * Get a specific expense by its index in the expenses array
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {number} index - Index of the expense in the array
+     * @returns {Promise<Object|null>} Expense object or null if not found
+     */
+    static async getExpenseByIndex(kv, userId, index) {
+        const userData = await this.getUserData(kv, userId);
+        const expenses = userData.expenses || [];
+        
+        if (index < 0 || index >= expenses.length) {
+            return null;
+        }
+        
+        return {...expenses[index], originalIndex: index};
+    }
+
+    /**
+     * Update an expense at a specific index
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {number} index - Index of the expense to update
+     * @param {Object} updates - Object with fields to update (amount, merchant, description, category)
+     * @returns {Promise<Object>} Updated expense object
+     */
+    static async updateExpense(kv, userId, index, updates) {
+        console.debug(`✏️ UPDATE_EXPENSE: Updating expense at index ${index} for user ${userId}`);
+        
+        const userData = await this.getUserData(kv, userId);
+        const expenses = userData.expenses || [];
+        
+        if (index < 0 || index >= expenses.length) {
+            throw new Error("Expense not found");
+        }
+        
+        // Apply updates
+        const expense = expenses[index];
+        if (updates.amount !== undefined) {
+            expense.amount = parseFloat(updates.amount);
+        }
+        if (updates.merchant !== undefined) {
+            expense.merchant = updates.merchant.toLowerCase();
+        }
+        if (updates.description !== undefined) {
+            expense.description = updates.description;
+        }
+        if (updates.category !== undefined) {
+            expense.category = updates.category;
+        }
+        
+        // Save updated user data
+        await this.saveUserData(kv, userId, userData);
+        console.info(`✅ EXPENSE_UPDATED: Updated expense at index ${index}`);
+        
+        return expense;
+    }
+
+    /**
+     * Delete an expense at a specific index
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {number} index - Index of the expense to delete
+     * @returns {Promise<Object>} Deleted expense object
+     */
+    static async deleteExpense(kv, userId, index) {
+        console.debug(`🗑️ DELETE_EXPENSE: Deleting expense at index ${index} for user ${userId}`);
+        
+        const userData = await this.getUserData(kv, userId);
+        const expenses = userData.expenses || [];
+        
+        if (index < 0 || index >= expenses.length) {
+            throw new Error("Expense not found");
+        }
+        
+        // Get the expense before deleting
+        const deletedExpense = expenses[index];
+        
+        // Remove the expense
+        expenses.splice(index, 1);
+        
+        // Save updated user data
+        await this.saveUserData(kv, userId, userData);
+        console.info(`✅ EXPENSE_DELETED: Deleted expense at index ${index}`);
+        
+        return deletedExpense;
+    }
 }
 
 /**

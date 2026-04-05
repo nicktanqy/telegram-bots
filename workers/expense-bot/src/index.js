@@ -170,6 +170,13 @@ export default {
                 responseText = await this.quickAdd(env.USER_DATA, userId, chatId, text.substring(5));
             } else if (text === '/show_data' && userId === DEVELOPER_CHAT_ID.toString()) {
                 responseText = await this.showData(env.USER_DATA, userId, chatId);
+            } else if (text === '/edit_expense') {
+                await this.editExpense(env, userId, chatId);
+                return new Response('OK', { status: 200 });
+            } else if (update.callback_query) {
+                // Handle callback queries from inline keyboards
+                await this.handleCallbackQuery(env, update.callback_query);
+                return new Response('OK', { status: 200 });
             } else {
                 // Check for Apple Pay transaction message even during active flows
                 const applePayData = parseApplePayMessage(text);
@@ -213,6 +220,13 @@ Your expense has been automatically added to your tracking!`;
                         }
                     }
                 } else {
+                    // Check if user is in edit mode (editing an expense field)
+                    const editContext = await this.getContext(env.USER_DATA, userId);
+                    if (editContext.editExpenseField) {
+                        await this.handleEditInput(env.USER_DATA, userId, chatId, text);
+                        return new Response('OK', { status: 200 });
+                    }
+                    
                     // Handle menu choices and conversation input
                     const currentFlow = await this.getCurrentFlow(env.USER_DATA, userId);
                     
@@ -294,7 +308,7 @@ Your expense has been automatically added to your tracking!`;
             
             const flow = FLOWS.expense_setup;
             const firstStep = flow.getStep(0);
-            const setupText = `${welcomeText}\n\n${flow.welcome_message}\n\n${firstStep.formField.prompt}`;
+            const setupText = `${welcomeText}\n\n${flow.welcomeMessage}\n\n${firstStep.formField.prompt}`;
             
             return setupText;
         }
@@ -354,7 +368,7 @@ Your expense has been automatically added to your tracking!`;
         const flow = FLOWS.expense_tracking;
         const firstStep = flow.getStep(0);
         
-        return `${flow.welcome_message}\n\n${firstStep.formField.prompt}`;
+        return `${flow.welcomeMessage}\n\n${firstStep.formField.prompt}`;
     },
 
     /**
@@ -413,7 +427,7 @@ Your expense has been automatically added to your tracking!`;
         const flow = FLOWS.edit_profile;
         const firstStep = flow.getStep(0);
         
-        return `${flow.welcome_message}\n\n${firstStep.formField.prompt}`;
+        return `${flow.welcomeMessage}\n\n${firstStep.formField.prompt}`;
     },
 
     /**
@@ -615,7 +629,7 @@ Merchant: ${expense.merchant}`;
         const flow = FLOWS.recurring_template;
         const firstStep = flow.getStep(0);
         
-        return `${flow.welcome_message}\n\n${firstStep.formField.prompt}`;
+        return `${flow.welcomeMessage}\n\n${firstStep.formField.prompt}`;
     },
 
     /**
@@ -931,6 +945,148 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
     },
 
     /**
+     * Send message with inline keyboard
+     * @param {Object} env - Environment variables
+     * @param {number} chatId - Chat ID
+     * @param {string} text - Message text
+     * @param {Array} inlineKeyboard - Inline keyboard buttons (array of arrays)
+     * @returns {Promise<void>}
+     */
+    async sendMessageWithInlineKeyboard(env, chatId, text, inlineKeyboard = null) {
+        const botToken = env.BOT_TOKEN;
+        if (!botToken) {
+            throw new Error('BOT_TOKEN environment variable is required');
+        }
+        
+        const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+        const body = {
+            chat_id: chatId,
+            text: text,
+            parse_mode: 'Markdown',
+            reply_markup: inlineKeyboard ? { inline_keyboard: inlineKeyboard } : undefined
+        };
+        
+        // Rate limiting: wait between messages to avoid hitting Telegram limits
+        await this.rateLimitDelay();
+        
+        try {
+            console.debug(`📤 SEND_INLINE: Sending to chat ${chatId}: ${text.substring(0, 50)}...`);
+            
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+            
+            const responseText = await response.text();
+            console.debug(`📥 RESPONSE: Status ${response.status}, Body: ${responseText}`);
+            
+            if (!response.ok) {
+                let errorMessage = `Telegram API error: ${response.status} ${response.statusText}`;
+                try {
+                    const errorData = JSON.parse(responseText);
+                    if (errorData && errorData.description) {
+                        errorMessage = `Telegram API error: ${errorData.description}`;
+                    }
+                } catch (parseError) {
+                    errorMessage = `Telegram API error: ${response.status} ${response.statusText} - ${responseText}`;
+                }
+                throw new Error(errorMessage);
+            }
+            
+            console.info(`✅ INLINE_MESSAGE_SENT: Successfully sent inline message to chat ${chatId}`);
+            
+        } catch (error) {
+            console.error(`❌ ERROR: Failed to send inline message: ${error.message}`);
+            throw error;
+        }
+    },
+
+    /**
+     * Answer callback query (for inline button presses)
+     * @param {Object} env - Environment variables
+     * @param {number} callbackQueryId - Callback query ID
+     * @param {string} message - Optional message to show
+     * @returns {Promise<void>}
+     */
+    async answerCallbackQuery(env, callbackQueryId, message = null) {
+        const botToken = env.BOT_TOKEN;
+        if (!botToken) {
+            throw new Error('BOT_TOKEN environment variable is required');
+        }
+        
+        const url = `https://api.telegram.org/bot${botToken}/answerCallbackQuery`;
+        const body = {
+            callback_query_id: callbackQueryId
+        };
+        
+        if (message) {
+            body.text = message;
+            body.show_alert = false; // Show as notification, not alert
+        }
+        
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            
+            if (!response.ok) {
+                const responseText = await response.text();
+                console.error(`❌ ERROR: Failed to answer callback query: ${responseText}`);
+            }
+        } catch (error) {
+            console.error(`❌ ERROR: Failed to answer callback query: ${error.message}`);
+        }
+    },
+
+    /**
+     * Edit message text (for updating inline messages)
+     * @param {Object} env - Environment variables
+     * @param {number} chatId - Chat ID
+     * @param {number} messageId - Message ID to edit
+     * @param {string} text - New message text
+     * @param {Array} inlineKeyboard - New inline keyboard (optional)
+     * @returns {Promise<void>}
+     */
+    async editMessageText(env, chatId, messageId, text, inlineKeyboard = null) {
+        const botToken = env.BOT_TOKEN;
+        if (!botToken) {
+            throw new Error('BOT_TOKEN environment variable is required');
+        }
+        
+        const url = `https://api.telegram.org/bot${botToken}/editMessageText`;
+        const body = {
+            chat_id: chatId,
+            message_id: messageId,
+            text: text,
+            parse_mode: 'Markdown'
+        };
+        
+        if (inlineKeyboard) {
+            body.reply_markup = { inline_keyboard: inlineKeyboard };
+        }
+        
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            
+            if (!response.ok) {
+                const responseText = await response.text();
+                console.error(`❌ ERROR: Failed to edit message: ${responseText}`);
+            }
+        } catch (error) {
+            console.error(`❌ ERROR: Failed to edit message: ${error.message}`);
+        }
+    },
+
+    /**
      * Send message to Telegram with improved error handling and retry logic
      * @param {Object} env - Environment variables
      * @param {number} chatId - Chat ID
@@ -1100,6 +1256,373 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
         } catch (error) {
             console.error(`❌ ERROR: Failed to get context for ${userId}: ${error.message}`);
             return {};
+        }
+    },
+
+    /**
+     * Handle /edit_expense command
+     * @param {Object} env - Environment variables
+     * @param {string} userId - User ID
+     * @param {number} chatId - Chat ID
+     * @returns {Promise<string>} Response text
+     */
+    async editExpense(env, userId, chatId) {
+        console.log(`✏️ EDIT_EXPENSE: User '${userId}' requested to edit expense`);
+        
+        const isInitialized = await ProfileService.isProfileInitialized(env.USER_DATA, userId);
+        if (!isInitialized) {
+            return "❌ Please set up your profile first with /start";
+        }
+        
+        // Get recent expenses
+        const expenses = await ExpenseService.getRecentExpenses(env.USER_DATA, userId, 10);
+        
+        if (!expenses || expenses.length === 0) {
+            return "📋 You don't have any expenses to edit yet. Start tracking with /expense";
+        }
+        
+        // Build inline keyboard with expenses
+        const inlineKeyboard = [];
+        
+        for (const expense of expenses) {
+            const date = new Date(expense.timestamp);
+            const dateStr = date.toISOString().split('T')[0];
+            
+            // Button text: "$50.00 - Starbucks (2024-01-15)"
+            const buttonText = `$${expense.amount.toFixed(2)} - ${expense.merchant} (${dateStr})`;
+            
+            // Callback data: "edit_exp:{originalIndex}"
+            const callbackData = `edit_exp:${expense.originalIndex}`;
+            
+            inlineKeyboard.push([{
+                text: buttonText,
+                callback_data: callbackData
+            }]);
+        }
+        
+        // Add a cancel button
+        inlineKeyboard.push([{
+            text: "❌ Cancel",
+            callback_data: "edit_cancel"
+        }]);
+        
+        // Send message with inline keyboard
+        const message = "📋 Here are your recent expenses. Which one would you like to edit?";
+        await this.sendMessageWithInlineKeyboard(env, chatId, message, inlineKeyboard);
+        
+        return null; // Return null since we're sending via sendMessageWithInlineKeyboard
+    },
+
+    /**
+     * Handle callback queries from inline keyboards
+     * @param {Object} env - Environment variables
+     * @param {Object} callbackQuery - Callback query object from Telegram
+     * @returns {Promise<void>}
+     */
+    async handleCallbackQuery(env, callbackQuery) {
+        try {
+            const userId = callbackQuery.from.id.toString();
+            const chatId = callbackQuery.message.chat.id;
+            const messageId = callbackQuery.message.message_id;
+            const data = callbackQuery.data;
+            
+            console.log(`🔘 CALLBACK: User '${userId}' triggered callback: '${data}'`);
+            
+            // Answer the callback query immediately to remove loading state
+            await this.answerCallbackQuery(env, callbackQuery.id);
+            
+            if (data === 'edit_cancel') {
+                await this.sendMessage(env, chatId, "❌ Edit cancelled.");
+                return;
+            }
+            
+            if (data.startsWith('edit_exp:')) {
+                // Extract expense index
+                const index = parseInt(data.split(':')[1]);
+                
+                if (isNaN(index)) {
+                    await this.sendMessage(env, chatId, "❌ Invalid expense selection.");
+                    return;
+                }
+                
+                // Get the expense
+                const expense = await ExpenseService.getExpenseByIndex(env.USER_DATA, userId, index);
+                
+                if (!expense) {
+                    await this.sendMessage(env, chatId, "❌ Expense not found. It may have been deleted.");
+                    return;
+                }
+                
+                // Store selected expense info in context for later use
+                const context = await this.getContext(env.USER_DATA, userId);
+                context.editExpenseIndex = index;
+                context.editExpenseData = expense;
+                await env.USER_DATA.put(`${userId}:context`, JSON.stringify(context));
+                
+                // Build the edit menu
+                const date = new Date(expense.timestamp);
+                const dateStr = date.toISOString().split('T')[0];
+                const desc = expense.description || '(No description)';
+                const category = expense.category || 'Other';
+                
+                const message = `✏️ **Editing Expense**
+━━━━━━━━━━━━━━━━
+💰 Amount: $${expense.amount.toFixed(2)}
+📅 Date: ${dateStr}
+📝 Description: ${desc}
+🏷️ Category: ${category}
+
+What would you like to edit?`;
+                
+                const inlineKeyboard = [
+                    [
+                        { text: "💰 Amount", callback_data: "edit_field:amount" },
+                        { text: "📅 Date", callback_data: "edit_field:date" }
+                    ],
+                    [
+                        { text: "📝 Description", callback_data: "edit_field:description" },
+                        { text: "🏷️ Category", callback_data: "edit_field:category" }
+                    ],
+                    [
+                        { text: "🗑️ Delete", callback_data: "edit_delete" }
+                    ],
+                    [
+                        { text: "❌ Cancel", callback_data: "edit_cancel_menu" }
+                    ]
+                ];
+                
+                await this.sendMessageWithInlineKeyboard(env, chatId, message, inlineKeyboard);
+                return;
+            }
+            
+            if (data.startsWith('edit_field:')) {
+                // User wants to edit a specific field
+                const field = data.split(':')[1];
+                const context = await this.getContext(env.USER_DATA, userId);
+                const expense = context.editExpenseData;
+                
+                if (!expense) {
+                    await this.sendMessage(env, chatId, "❌ Session expired. Please select the expense again with /edit_expense");
+                    return;
+                }
+                
+                // Store the field being edited in context
+                context.editExpenseField = field;
+                await env.USER_DATA.put(`${userId}:context`, JSON.stringify(context));
+                
+                // Prompt for new value based on field
+                let prompt = '';
+                switch (field) {
+                    case 'amount':
+                        prompt = `Current amount: $${expense.amount.toFixed(2)}. Enter new amount (e.g., 75.50):`;
+                        break;
+                    case 'date':
+                        const date = new Date(expense.timestamp);
+                        prompt = `Current date: ${date.toISOString().split('T')[0]}. Enter new date (YYYY-MM-DD format):`;
+                        break;
+                    case 'description':
+                        prompt = `Current description: "${expense.description || ''}". Enter new description:`;
+                        break;
+                    case 'category':
+                        prompt = `Current category: ${expense.category || 'Other'}. Enter new category (e.g., food, transport, entertainment):`;
+                        break;
+                }
+                
+                await this.sendMessage(env, chatId, prompt);
+                return;
+            }
+            
+            if (data === 'edit_delete') {
+                // Confirm deletion
+                const context = await this.getContext(env.USER_DATA, userId);
+                const expense = context.editExpenseData;
+                
+                if (!expense) {
+                    await this.sendMessage(env, chatId, "❌ Session expired. Please select the expense again with /edit_expense");
+                    return;
+                }
+                
+                const date = new Date(expense.timestamp);
+                const dateStr = date.toISOString().split('T')[0];
+                
+                const message = `⚠️ **DELETE CONFIRMATION**
+━━━━━━━━━━━━━━━━
+Are you sure you want to delete this expense?
+
+💰 $${expense.amount.toFixed(2)} at ${expense.merchant}
+📅 ${dateStr}
+📝 ${expense.description || '(No description)'}
+
+This action cannot be undone.`;
+                
+                const inlineKeyboard = [
+                    [
+                        { text: "✅ Yes, Delete", callback_data: "edit_delete_confirm" },
+                        { text: "❌ Cancel", callback_data: "edit_cancel_menu" }
+                    ]
+                ];
+                
+                await this.sendMessageWithInlineKeyboard(env, chatId, message, inlineKeyboard);
+                return;
+            }
+            
+            if (data === 'edit_delete_confirm') {
+                // Perform deletion
+                const context = await this.getContext(env.USER_DATA, userId);
+                const index = context.editExpenseIndex;
+                
+                if (index === undefined) {
+                    await this.sendMessage(env, chatId, "❌ Session expired. Please try again with /edit_expense");
+                    return;
+                }
+                
+                try {
+                    const deleted = await ExpenseService.deleteExpense(env.USER_DATA, userId, index);
+                    
+                    // Clear the edit context
+                    delete context.editExpenseIndex;
+                    delete context.editExpenseData;
+                    delete context.editExpenseField;
+                    await env.USER_DATA.put(`${userId}:context`, JSON.stringify(context));
+                    
+                    await this.sendMessage(env, chatId, `🗑️ Expense deleted successfully!
+
+Removed: $${deleted.amount.toFixed(2)} at ${deleted.merchant} on ${new Date(deleted.timestamp).toISOString().split('T')[0]}`);
+                } catch (error) {
+                    await this.sendMessage(env, chatId, `❌ Error deleting expense: ${error.message}`);
+                }
+                return;
+            }
+            
+            if (data === 'edit_cancel_menu') {
+                // Clear the edit context
+                const context = await this.getContext(env.USER_DATA, userId);
+                delete context.editExpenseIndex;
+                delete context.editExpenseData;
+                delete context.editExpenseField;
+                await env.USER_DATA.put(`${userId}:context`, JSON.stringify(context));
+                
+                await this.sendMessage(env, chatId, "❌ Edit cancelled.");
+                return;
+            }
+            
+        } catch (error) {
+            console.error(`❌ ERROR in handleCallbackQuery: ${error.message}`);
+        }
+    },
+
+    /**
+     * Handle text input during edit flow
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {number} chatId - Chat ID
+     * @param {string} text - User's text input
+     * @returns {Promise<void>}
+     */
+    async handleEditInput(kv, userId, chatId, text) {
+        const context = await this.getContext(kv, userId);
+        const field = context.editExpenseField;
+        const expense = context.editExpenseData;
+        
+        if (!field || !expense) {
+            // Not in edit mode
+            return;
+        }
+        
+        try {
+            const updates = {};
+            
+            switch (field) {
+                case 'amount':
+                    const amount = parseFloat(text);
+                    if (isNaN(amount) || amount <= 0) {
+                        await this.sendMessage(kv, chatId, "❌ Invalid amount. Please enter a positive number (e.g., 75.50):");
+                        return;
+                    }
+                    if (amount > 10000) {
+                        await this.sendMessage(kv, chatId, "❌ Amount seems too high. Please enter a valid amount:");
+                        return;
+                    }
+                    updates.amount = amount;
+                    break;
+                    
+                case 'date':
+                    const dateMatch = text.match(/^\d{4}-\d{2}-\d{2}$/);
+                    if (!dateMatch) {
+                        await this.sendMessage(kv, chatId, "❌ Invalid date format. Please use YYYY-MM-DD (e.g., 2024-01-20):");
+                        return;
+                    }
+                    // Validate the date is real
+                    const dateObj = new Date(text);
+                    if (isNaN(dateObj.getTime())) {
+                        await this.sendMessage(kv, chatId, "❌ Invalid date. Please enter a valid date:");
+                        return;
+                    }
+                    updates.timestamp = dateObj.toISOString();
+                    break;
+                    
+                case 'description':
+                    if (text.length > 200) {
+                        await this.sendMessage(kv, chatId, "❌ Description too long. Please keep it under 200 characters:");
+                        return;
+                    }
+                    updates.description = text.trim();
+                    break;
+                    
+                case 'category':
+                    const category = text.toLowerCase().trim();
+                    if (category.length < 2) {
+                        await this.sendMessage(kv, chatId, "❌ Category too short. Please enter a valid category:");
+                        return;
+                    }
+                    updates.category = category;
+                    break;
+            }
+            
+            // Apply the update
+            const index = context.editExpenseIndex;
+            const updated = await ExpenseService.updateExpense(kv, userId, index, updates);
+            
+            // Clear the edit field
+            delete context.editExpenseField;
+            await kv.put(`${userId}:context`, JSON.stringify(context));
+            
+            // Show confirmation
+            const date = new Date(updated.timestamp);
+            const dateStr = date.toISOString().split('T')[0];
+            const desc = updated.description || '(No description)';
+            const cat = updated.category || 'Other';
+            
+            const message = `✅ **Expense Updated**
+━━━━━━━━━━━━━━━━
+💰 Amount: $${updated.amount.toFixed(2)}
+📅 Date: ${dateStr}
+📝 Description: ${desc}
+🏷️ Category: ${cat}
+
+What would you like to do?`;
+            
+            const inlineKeyboard = [
+                [
+                    { text: "💰 Amount", callback_data: "edit_field:amount" },
+                    { text: "📅 Date", callback_data: "edit_field:date" }
+                ],
+                [
+                    { text: "📝 Description", callback_data: "edit_field:description" },
+                    { text: "🏷️ Category", callback_data: "edit_field:category" }
+                ],
+                [
+                    { text: "🗑️ Delete", callback_data: "edit_delete" }
+                ],
+                [
+                    { text: "✅ Done", callback_data: "edit_cancel_menu" }
+                ]
+            ];
+            
+            await this.sendMessageWithInlineKeyboard(kv, chatId, message, inlineKeyboard);
+            
+        } catch (error) {
+            await this.sendMessage(kv, chatId, `❌ Error updating expense: ${error.message}`);
         }
     }
 };
