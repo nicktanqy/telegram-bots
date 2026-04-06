@@ -29,7 +29,8 @@ import {
     handleEditInput
 } from './handlers/callbacks.js';
 import { handleMenuChoice, getMainMenuResponse } from './handlers/menu.js';
-import { ProfileService } from './services.js';
+import { ProfileService, ExpenseService, parseApplePayMessage } from './services.js';
+import { buildApplePayConfirmation } from './utils/messageBuilder.js';
 
 // Conversation states
 const MAIN_MENU = 0;
@@ -70,6 +71,11 @@ export default {
                     status: 200,
                     headers: { 'Content-Type': 'text/plain' }
                 });
+            }
+
+            // Handle Apple Pay transactions from external systems (e.g., iOS Shortcuts)
+            if (url.pathname === '/apple-pay' && request.method === 'POST') {
+                return await this.handleApplePayTransaction(request, env);
             }
 
             return new Response('Not Found', { status: 404 });
@@ -414,5 +420,115 @@ export default {
      */
     async clearFlow(kv, userId) {
         await kv.delete(`${userId}:context`);
+    },
+
+    /**
+     * Handle Apple Pay transaction from external systems (e.g., iOS Shortcuts)
+     * @param {Request} request - Incoming HTTP request
+     * @param {Object} env - Environment variables
+     * @returns {Promise<Response>} HTTP response
+     */
+    async handleApplePayTransaction(request, env) {
+        try {
+            // Parse request body
+            const body = await request.json();
+            const { bot_token, chat_id, text } = body;
+
+            // Validate required fields
+            if (!bot_token) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Missing bot_token'
+                }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            if (!chat_id) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Missing chat_id'
+                }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            if (!text) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Missing text'
+                }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            // Validate bot_token
+            if (bot_token !== env.BOT_TOKEN) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Invalid bot_token'
+                }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            // Check if KV namespace is available
+            if (!env.USER_DATA) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'USER_DATA KV namespace not configured'
+                }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            // Parse Apple Pay message
+            const applePayData = parseApplePayMessage(text);
+            if (!applePayData || Object.keys(applePayData).length === 0) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Invalid Apple Pay message format. Expected: "Spent $X at Merchant on YYYY-MM-DD"'
+                }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            // Convert chat_id to userId (string)
+            const userId = chat_id.toString();
+
+            // Check if user is initialized
+            const isInitialized = await ProfileService.isProfileInitialized(env.USER_DATA, userId);
+            if (!isInitialized) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'User profile not initialized. Please start the bot with /start first.'
+                }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            // Create expense data
+            const expenseData = {
+                amount: applePayData.amount,
+                merchant: applePayData.merchant,
+                description: `Apple Pay transaction on ${applePayData.date}`
+            };
+
+            // Add expense
+            const expense = await ExpenseService.addExpense(env.USER_DATA, userId, expenseData);
+
+            // Send confirmation message to user
+            const confirmationText = buildApplePayConfirmation({
+                amount: expense.amount,
+                merchant: applePayData.merchant,
+                date: applePayData.date,
+                description: expense.description
+            });
+            await TelegramService.sendMessage(env, chat_id, confirmationText);
+
+            // Return success response
+            return new Response(JSON.stringify({
+                success: true,
+                message: '✅ Apple Pay Transaction Recorded',
+                expense: {
+                    amount: expense.amount,
+                    merchant: applePayData.merchant,
+                    date: applePayData.date
+                }
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+        } catch (error) {
+            console.error('❌ ERROR in handleApplePayTransaction:', error);
+            return new Response(JSON.stringify({
+                success: false,
+                error: 'Internal server error'
+            }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        }
     }
 };

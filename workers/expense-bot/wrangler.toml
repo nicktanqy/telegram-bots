@@ -1,6 +1,6 @@
 # Budget Billy Expense Tracker - Cloudflare Workers Configuration
 
-name = "expense-bot-workers"
+name = "billy-bot"
 main = "src/index.js"
 compatibility_date = "2025-03-13"
 

@@ -76,12 +76,14 @@ A stateless Telegram bot for expense tracking, migrated from Python to Cloudflar
 
 5. **Set Environment Variables**
    ```bash
-   # Set your Telegram bot token
+   # Set your Telegram bot token (required for production)
    wrangler secret put BOT_TOKEN
    
    # Set developer chat ID (optional, for debug commands)
    wrangler secret put DEVELOPER_CHAT_ID
    ```
+   
+   > **Important**: The bot token must be set as a secret using `wrangler secret put BOT_TOKEN`, not in the code. The token in `wrangler.toml` is only for local development.
 
 ## Deployment
 
@@ -147,6 +149,80 @@ wrangler publish --env staging
    - Expense amount
    - Category
    - Description (optional)
+
+### Apple Pay Integration (iOS Shortcuts)
+
+The bot supports automated expense recording via iOS Shortcuts. This allows you to automatically record Apple Pay transactions by triggering a shortcut on your iPhone.
+
+#### API Endpoint
+
+```
+POST /apple-pay
+Content-Type: application/json
+```
+
+#### Request Body
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `bot_token` | string | Your Telegram bot token (for authentication) |
+| `chat_id` | number | The user's Telegram chat ID |
+| `text` | string | Apple Pay transaction message in format: `"Spent $X at Merchant on YYYY-MM-DD"` |
+
+#### Example Request
+
+```json
+POST https://billy-bot.nicktanqy.workers.dev/apple-pay
+{
+  "bot_token": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
+  "chat_id": 123456789,
+  "text": "Spent $15.99 at Starbucks on 2026-03-26"
+}
+```
+
+#### Example Response (Success)
+
+```json
+{
+  "success": true,
+  "message": "✅ Apple Pay Transaction Recorded",
+  "expense": {
+    "amount": 15.99,
+    "merchant": "Starbucks",
+    "date": "2026-03-26"
+  }
+}
+```
+
+#### Example Response (Error)
+
+```json
+{
+  "success": false,
+  "error": "Invalid bot_token"
+}
+```
+
+#### iOS Shortcuts Setup
+
+1. Open the **Shortcuts** app on your iPhone
+2. Create a new shortcut with the following actions:
+   - **Get Transaction Details** (extract amount, merchant, date from Apple Pay notification)
+   - **Format Text**: `"Spent $" + Amount + " at " + Merchant + " on " + Date`
+   - **Make Request**:
+     - URL: `https://billy-bot.nicktanqy.workers.dev/apple-pay`
+     - Method: POST
+     - Headers: `Content-Type: application/json`
+     - Body: JSON with `bot_token`, `chat_id`, and formatted `text`
+
+#### Error Codes
+
+| Status Code | Description |
+|-------------|-------------|
+| `200` | Success - expense recorded and confirmation sent |
+| `400` | Bad Request - missing required fields or invalid message format |
+| `401` | Unauthorized - invalid bot_token |
+| `500` | Internal Server Error |
 
 ## Security Features
 
