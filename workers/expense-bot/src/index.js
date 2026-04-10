@@ -20,6 +20,7 @@ import {
     handleAddRecurring,
     handleMonthlyReport,
     handleShowData,
+    handleDebugRecurring,
     handleQuickAdd,
     handleApplePayMessage
 } from './handlers/commands.js';
@@ -239,6 +240,7 @@ export default {
             '/add_recurring': () => handleAddRecurring(env, userId, chatId),
             '/monthly-report': () => userId === DEVELOPER_CHAT_ID.toString() ? handleMonthlyReport(env, userId, chatId) : null,
             '/show_data': () => userId === DEVELOPER_CHAT_ID.toString() ? handleShowData(env, userId, chatId) : null,
+            '/debug_recurring': () => userId === DEVELOPER_CHAT_ID.toString() ? handleDebugRecurring(env, userId, chatId) : null,
         };
 
         // Handle direct commands

@@ -299,9 +299,6 @@ export class ExpenseService {
         if (updates.description !== undefined) {
             expense.description = updates.description;
         }
-        if (updates.category !== undefined) {
-            expense.category = updates.category;
-        }
         
         // Save updated user data
         await this.saveUserData(kv, userId, userData);
@@ -349,7 +346,7 @@ export class RecurringExpenseService {
      * Add a recurring expense template
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
-     * @param {Object} templateData - Template data with name, amount, merchant, category, frequency
+     * @param {Object} templateData - Template data with name, amount, merchant, frequency
      * @returns {Promise<void>}
      */
     static async addRecurringTemplate(kv, userId, templateData) {
@@ -366,7 +363,6 @@ export class RecurringExpenseService {
                 name: templateData.name,
                 amount: parseFloat(templateData.amount),
                 merchant: templateData.merchant,
-                category: templateData.category || 'other',
                 frequency: templateData.frequency || 'monthly', // daily, weekly, monthly, yearly
                 description: templateData.description || '',
                 isActive: true,
@@ -586,7 +582,6 @@ export class RecurringExpenseService {
             summary += `  Amount: $${template.amount.toFixed(2)}\n`;
             summary += `  Merchant: ${template.merchant}\n`;
             summary += `  Frequency: ${template.frequency}\n`;
-            summary += `  Category: ${template.category}\n`;
             
             // Calculate monthly equivalent
             const monthlyAmount = this.getMonthlyEquivalent(template.amount, template.frequency);

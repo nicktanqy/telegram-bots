@@ -235,15 +235,15 @@ export async function handleBreakdown(env, userId, chatId) {
         return { text: "❌ Please set up your profile first with /start" };
     }
 
-    const expensesByCategory = await ProfileService.getMonthlyExpensesByCategory(kv, userId);
+    const expensesByMerchant = await ExpenseService.getExpensesByMerchant(kv, userId);
     const totalExpenses = await ProfileService.getTotalMonthlyExpenses(kv, userId);
 
-    if (!expensesByCategory || Object.keys(expensesByCategory).length === 0) {
+    if (!expensesByMerchant || Object.keys(expensesByMerchant).length === 0) {
         return { text: "📋 No expenses recorded for this month yet." };
     }
 
     const monthName = getCurrentMonthName();
-    const message = buildBreakdownMessage(expensesByCategory, totalExpenses, monthName);
+    const message = buildBreakdownMessage(expensesByMerchant, totalExpenses, monthName);
     return { text: message };
 }
 
@@ -320,6 +320,41 @@ export async function handleShowData(env, userId, chatId) {
 
     const userData = await ExpenseService.getUserData(kv, userId);
     return { text: `Debug data:\n${JSON.stringify(userData, null, 2)}` };
+}
+
+/**
+ * Handle /debug_recurring command (developer only)
+ * @param {Object} env - Environment variables
+ * @param {string} userId - User ID
+ * @param {number} chatId - Chat ID
+ * @returns {Promise<Object>} Response object with text
+ */
+export async function handleDebugRecurring(env, userId, chatId) {
+    const kv = env.USER_DATA;
+    if (userId !== String(env.DEVELOPER_CHAT_ID || '138562035')) {
+        return { text: "❌ Not authorized." };
+    }
+
+    const userData = await ExpenseService.getUserData(kv, userId);
+    const templates = await RecurringExpenseService.getRecurringTemplates(kv, userId);
+    
+    let debugText = `🔍 Recurring Expense Debug\n━━━━━━━━━━━━━━━━\n`;
+    debugText += `User ID: ${userId}\n`;
+    debugText += `Profile Initialized: ${userData.isInitialized}\n`;
+    debugText += `Recurring Templates Count: ${templates.length}\n\n`;
+    
+    if (templates.length > 0) {
+        debugText += `Templates:\n`;
+        templates.forEach((template, index) => {
+            debugText += `${index + 1}. ${template.name} - $${template.amount} (${template.frequency})\n`;
+        });
+    } else {
+        debugText += `No recurring templates found.\n`;
+    }
+    
+    debugText += `\nFull user data:\n${JSON.stringify(userData, null, 2)}`;
+    
+    return { text: debugText };
 }
 
 /**

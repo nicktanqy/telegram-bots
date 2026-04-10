@@ -162,7 +162,6 @@ async function onRecurringTemplateComplete(kv, userId, flowData) {
             name: flowData.template_name,
             amount: flowData.template_amount,
             merchant: flowData.template_merchant,
-            category: flowData.template_category,
             frequency: flowData.template_frequency,
             description: flowData.template_description || ''
         };
@@ -319,9 +318,6 @@ async function handleEditFieldSelection(env, userId, chatId, data) {
             break;
         case 'description':
             prompt = `Current description: "${expense.description || ''}". Enter new description:`;
-            break;
-        case 'category':
-            prompt = `Current category: ${expense.category || 'Other'}. Enter new category (e.g., food, transport, entertainment):`;
             break;
     }
 
@@ -516,14 +512,6 @@ export async function handleEditInput(env, userId, chatId, text) {
                 updates.description = text.trim();
                 break;
 
-            case 'category':
-                const category = text.toLowerCase().trim();
-                if (category.length < 2) {
-                    await TelegramService.sendMessage(env, chatId, "❌ Category too short. Please enter a valid category:");
-                    return;
-                }
-                updates.category = category;
-                break;
         }
 
         // Apply the update

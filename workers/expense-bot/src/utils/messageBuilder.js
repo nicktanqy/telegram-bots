@@ -37,31 +37,31 @@ Progress: ${progressData.monthlySavingsProgress.toFixed(1)}%`;
 }
 
 /**
- * Build an expense breakdown message by category
- * @param {Object} expensesByCategory - Expenses grouped by category
+ * Build an expense breakdown message by merchant
+ * @param {Object} expensesByMerchant - Expenses grouped by merchant
  * @param {number} totalExpenses - Total expenses amount
  * @param {string} monthName - Name of the current month
  * @returns {string} Formatted breakdown message
  */
-export function buildBreakdownMessage(expensesByCategory, totalExpenses, monthName) {
+export function buildBreakdownMessage(expensesByMerchant, totalExpenses, monthName) {
     let message = `📊 **Expense Breakdown - ${monthName}**
 ${SEPARATOR}
 Total Expenses: $${totalExpenses.toFixed(2)}`;
 
-    for (const [category, expenses] of Object.entries(expensesByCategory)) {
-        const categoryTotal = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-        const percentage = totalExpenses > 0 ? (categoryTotal / totalExpenses * 100) : 0;
+    for (const [merchant, expenses] of Object.entries(expensesByMerchant)) {
+        const merchantTotal = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+        const percentage = totalExpenses > 0 ? (merchantTotal / totalExpenses * 100) : 0;
 
-        message += `\n\n**${capitalizeFirst(category)}** ($${categoryTotal.toFixed(2)} - ${percentage.toFixed(1)}%)`;
+        message += `\n\n**${capitalizeFirst(merchant)}** ($${merchantTotal.toFixed(2)} - ${percentage.toFixed(1)}%)`;
 
-        // Show last 3 expenses in this category
+        // Show last 3 expenses with this merchant
         const sortedExpenses = expenses
             .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
             .slice(0, 3);
 
         for (const expense of sortedExpenses) {
             const desc = expense.description ? ` - ${expense.description}` : "";
-            message += `\n  • $${expense.amount.toFixed(2)} at ${expense.merchant}${desc}`;
+            message += `\n  • $${expense.amount.toFixed(2)}${desc}`;
         }
     }
 
@@ -167,14 +167,12 @@ export function buildExpenseEditMenu(expense) {
     const date = new Date(expense.timestamp);
     const dateStr = date.toISOString().split('T')[0];
     const desc = expense.description || '(No description)';
-    const category = expense.category || 'Other';
 
     const message = `✏️ **Editing Expense**
 ${SEPARATOR}
 💰 Amount: $${expense.amount.toFixed(2)}
 📅 Date: ${dateStr}
 📝 Description: ${desc}
-🏷️ Category: ${category}
 
 What would you like to edit?`;
 
@@ -184,8 +182,7 @@ What would you like to edit?`;
             { text: "📅 Date", callback_data: "edit_field:date" }
         ],
         [
-            { text: "📝 Description", callback_data: "edit_field:description" },
-            { text: "🏷️ Category", callback_data: "edit_field:category" }
+            { text: "📝 Description", callback_data: "edit_field:description" }
         ],
         [
             { text: "🗑️ Delete", callback_data: "edit_delete" }
@@ -236,14 +233,12 @@ export function buildExpenseUpdateConfirmation(updated) {
     const date = new Date(updated.timestamp);
     const dateStr = date.toISOString().split('T')[0];
     const desc = updated.description || '(No description)';
-    const cat = updated.category || 'Other';
 
     return `✅ **Expense Updated**
 ${SEPARATOR}
 💰 Amount: $${updated.amount.toFixed(2)}
 📅 Date: ${dateStr}
 📝 Description: ${desc}
-🏷️ Category: ${cat}
 
 Your expense has been successfully updated!`;
 }

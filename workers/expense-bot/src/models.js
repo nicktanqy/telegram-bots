@@ -114,9 +114,6 @@ export class FormField {
                 if (this.key === 'name') {
                     return "Example: John Doe, Sarah";
                 }
-                if (this.key === 'category') {
-                    return "Example: food, transport, entertainment, utilities";
-                }
                 if (this.key === 'description') {
                     return "Example: Coffee at Starbucks, Bus fare, Movie ticket";
                 }

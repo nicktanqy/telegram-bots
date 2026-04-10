@@ -187,24 +187,6 @@ function createExpenseTrackingFlow() {
                 )
             ),
             new ConversationField(
-                "category",
-                new FormField(
-                    "category",
-                    "Category",
-                    "What category? (e.g., food, transport, entertainment)",
-                    FieldType.TEXT,
-                    (value) => {
-                        const category = value.toLowerCase().trim();
-                        const validCategories = ['food', 'transport', 'entertainment', 'utilities', 'shopping', 'healthcare', 'education', 'other'];
-                        if (!category || category.length < 2) {
-                            return { isValid: false, errorMessage: "Please enter a valid category." };
-                        }
-                        return { isValid: true, errorMessage: null };
-                    },
-                    true
-                )
-            ),
-            new ConversationField(
                 "description",
                 new FormField(
                     "description",
@@ -414,22 +396,6 @@ function createRecurringTemplateFlow() {
                     (value) => {
                         if (!value || value.trim().length < 2) {
                             return { isValid: false, errorMessage: "Merchant name must be at least 2 characters long." };
-                        }
-                        return { isValid: true, errorMessage: null };
-                    },
-                    true
-                )
-            ),
-            new ConversationField(
-                "template_category",
-                new FormField(
-                    "template_category",
-                    "Category",
-                    "What category is this? (e.g., housing, subscriptions, utilities)",
-                    FieldType.TEXT,
-                    (value) => {
-                        if (!value || value.trim().length < 2) {
-                            return { isValid: false, errorMessage: "Category must be at least 2 characters long." };
                         }
                         return { isValid: true, errorMessage: null };
                     },
