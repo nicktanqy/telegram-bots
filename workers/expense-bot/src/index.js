@@ -432,16 +432,64 @@ export default {
         try {
             // Parse request body
             const body = await request.json();
-            const { bot_token, chat_id, text } = body;
+            const { chat_id, text } = body;
 
-            // Validate required fields
-            if (!bot_token) {
+            // Validate API key from header (X-API-Key)
+            const apiKeyHeader = request.headers.get('X-API-Key');
+            if (!apiKeyHeader) {
                 return new Response(JSON.stringify({
                     success: false,
-                    error: 'Missing bot_token'
+                    error: 'Missing API key. Please provide X-API-Key header.'
+                }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            // Validate API key using timing-safe comparison
+            if (!env.APPLE_PAY_API_KEY) {
+                console.error('❌ APPLE_PAY_API_KEY environment variable not configured');
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Server configuration error'
+                }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            const isValidKey = await this.validateApiKey(apiKeyHeader, env.APPLE_PAY_API_KEY);
+            if (!isValidKey) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Invalid API key'
+                }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            // Validate timestamp to prevent replay attacks (allow 5 minute window)
+            const timestampHeader = request.headers.get('X-Timestamp');
+            if (!timestampHeader) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Missing timestamp. Please provide X-Timestamp header.'
+                }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            // Parse ISO 8601 timestamp (e.g., "2026-04-10T19:30:00Z")
+            const requestTime = new Date(timestampHeader).getTime();
+            if (isNaN(requestTime)) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Invalid timestamp format. Please use ISO 8601 format (e.g., 2026-04-10T19:30:00Z)'
                 }), { status: 400, headers: { 'Content-Type': 'application/json' } });
             }
 
+            const currentTime = Date.now();
+            const timeDifference = Math.abs(currentTime - requestTime);
+            const MAX_TIME_DIFF = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+            if (timeDifference > MAX_TIME_DIFF) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Request timestamp expired. Please retry.'
+                }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            // Validate required fields
             if (!chat_id) {
                 return new Response(JSON.stringify({
                     success: false,
@@ -454,14 +502,6 @@ export default {
                     success: false,
                     error: 'Missing text'
                 }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-            }
-
-            // Validate bot_token
-            if (bot_token !== env.BOT_TOKEN) {
-                return new Response(JSON.stringify({
-                    success: false,
-                    error: 'Invalid bot_token'
-                }), { status: 401, headers: { 'Content-Type': 'application/json' } });
             }
 
             // Check if KV namespace is available
@@ -530,5 +570,39 @@ export default {
                 error: 'Internal server error'
             }), { status: 500, headers: { 'Content-Type': 'application/json' } });
         }
+    },
+
+    /**
+     * Validate API key using timing-safe comparison
+     * @param {string} providedKey - API key from request header
+     * @param {string} storedKey - Stored API key from environment
+     * @returns {Promise<boolean>} True if keys match
+     */
+    async validateApiKey(providedKey, storedKey) {
+        try {
+            // For Cloudflare Workers, we can use the built-in crypto.subtle
+            // Hash both keys and compare the hashes for timing-safe comparison
+            const providedHash = await this.hashApiKey(providedKey);
+            const storedHash = await this.hashApiKey(storedKey);
+            
+            // Use timing-safe comparison
+            return providedHash === storedHash;
+        } catch (error) {
+            console.error('❌ ERROR validating API key:', error);
+            return false;
+        }
+    },
+
+    /**
+     * Hash API key using SHA-256
+     * @param {string} apiKey - API key to hash
+     * @returns {Promise<string>} Hex-encoded SHA-256 hash
+     */
+    async hashApiKey(apiKey) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(apiKey);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     }
 };
