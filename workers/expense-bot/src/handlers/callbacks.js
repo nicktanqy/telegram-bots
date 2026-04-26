@@ -3,7 +3,7 @@
  * Handles all Telegram callback queries from inline keyboards
  */
 
-import { ExpenseService } from '../services.js';
+import { ExpenseService, RecurringExpenseService } from '../services.js';
 import { FLOWS } from '../config.js';
 import { TelegramService } from '../services/telegram.js';
 import {
@@ -106,7 +106,7 @@ function getCompletionCallback(flowName) {
  * @param {string} userId - User ID
  * @param {Object} flowData - Flow data
  */
-async function onSetupComplete(kv, userId, flowData) {
+export async function onSetupComplete(kv, userId, flowData) {
     // Import ProfileService dynamically to avoid circular dependency
     const { ProfileService } = await import('../services.js');
     await ProfileService.initializeProfile(kv, userId, flowData);
@@ -118,7 +118,7 @@ async function onSetupComplete(kv, userId, flowData) {
  * @param {string} userId - User ID
  * @param {Object} flowData - Flow data
  */
-async function onExpenseComplete(kv, userId, flowData) {
+export async function onExpenseComplete(kv, userId, flowData) {
     try {
         await ExpenseService.addExpense(kv, userId, flowData);
     } catch (error) {
@@ -132,7 +132,7 @@ async function onExpenseComplete(kv, userId, flowData) {
  * @param {string} userId - User ID
  * @param {Object} flowData - Flow data
  */
-async function onEditProfileComplete(kv, userId, flowData) {
+export async function onEditProfileComplete(kv, userId, flowData) {
     try {
         const userData = await ExpenseService.getUserData(kv, userId);
         // Update only the fields that were provided
@@ -155,9 +155,11 @@ async function onEditProfileComplete(kv, userId, flowData) {
  * @param {string} userId - User ID
  * @param {Object} flowData - Flow data
  */
-async function onRecurringTemplateComplete(kv, userId, flowData) {
+export async function onRecurringTemplateComplete(kv, userId, flowData) {
     try {
-        const { RecurringExpenseService } = await import('../services.js');
+        console.debug(`✅ CALLBACK: onRecurringTemplateComplete running for user ${userId}`);
+        console.debug(`📦 FLOW_DATA RECEIVED: ${JSON.stringify(flowData)}`);
+        
         const templateData = {
             name: flowData.template_name,
             amount: flowData.template_amount,
@@ -166,9 +168,16 @@ async function onRecurringTemplateComplete(kv, userId, flowData) {
             description: flowData.template_description || ''
         };
 
+        console.debug(`📝 TEMPLATE DATA: ${JSON.stringify(templateData)}`);
         await RecurringExpenseService.addRecurringTemplate(kv, userId, templateData);
+        
+        // Verify it was actually saved
+        const savedTemplates = await RecurringExpenseService.getRecurringTemplates(kv, userId);
+        console.debug(`✅ VERIFIED: Now have ${savedTemplates.length} templates for user`);
+        
     } catch (error) {
         console.error(`❌ ERROR: Failed to create recurring template: ${error.message}`);
+        console.error(error.stack);
     }
 }
 

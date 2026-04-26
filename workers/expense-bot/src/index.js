@@ -25,6 +25,12 @@ import {
     handleApplePayMessage
 } from './handlers/commands.js';
 import {
+    onSetupComplete,
+    onExpenseComplete,
+    onEditProfileComplete,
+    onRecurringTemplateComplete
+} from './handlers/callbacks.js';
+import {
     handleCallbackQuery,
     handleEditExpense,
     handleEditInput
@@ -357,23 +363,14 @@ export default {
      * @returns {Function|null} Completion callback function
      */
     getCompletionCallback(flowName) {
-        // Import the callbacks from the callbacks handler
-        return async (kv, userId, flowData) => {
-            const { onSetupComplete, onExpenseComplete, onEditProfileComplete, onRecurringTemplateComplete } =
-                await import('./handlers/callbacks.js');
-
-            const callbacks = {
-                expense_setup: onSetupComplete,
-                expense_tracking: onExpenseComplete,
-                edit_profile: onEditProfileComplete,
-                recurring_template: onRecurringTemplateComplete
-            };
-
-            const callback = callbacks[flowName];
-            if (callback) {
-                await callback(kv, userId, flowData);
-            }
+        const callbacks = {
+            expense_setup: onSetupComplete,
+            expense_tracking: onExpenseComplete,
+            edit_profile: onEditProfileComplete,
+            recurring_template: onRecurringTemplateComplete
         };
+
+        return callbacks[flowName] || null;
     },
 
     /**

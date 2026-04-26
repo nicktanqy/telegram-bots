@@ -194,10 +194,34 @@ export class ExpenseService {
     static async getUserData(kv, userId) {
         try {
             const data = await kv.get(userId, "json");
-            return data || {};
+            // NEVER return empty object - Cloudflare KV will not create new keys for empty objects
+            // This was the root cause - first write with {} would succeed but not create the actual key
+            return data || {
+                expenses: [],
+                recurringTemplates: [],
+                name: "User",
+                age: 0,
+                currentSavings: 0,
+                monthlyBudget: 0,
+                savingsGoal: 0,
+                monthlyCashIncome: 0,
+                monthlySavingsGoal: 0,
+                isInitialized: false
+            };
         } catch (error) {
             console.error(`❌ ERROR: Failed to get user data for ${userId}: ${error.message}`);
-            return {};
+            return {
+                expenses: [],
+                recurringTemplates: [],
+                name: "User",
+                age: 0,
+                currentSavings: 0,
+                monthlyBudget: 0,
+                savingsGoal: 0,
+                monthlyCashIncome: 0,
+                monthlySavingsGoal: 0,
+                isInitialized: false
+            };
         }
     }
 
@@ -354,8 +378,15 @@ export class RecurringExpenseService {
         
         try {
             const userData = await ExpenseService.getUserData(kv, userId);
-            if (!userData.recurringTemplates) {
-                userData.recurringTemplates = [];
+            
+            // ✅ CRITICAL: Create complete new object - Cloudflare KV will NOT save modifications
+            // to objects returned from kv.get(). You MUST create a brand new object.
+            // This is the only way to bypass the fixed shape serialization bug.
+            const updatedUserData = { ...userData };
+            
+            // Always initialize array on the NEW object, never on the original
+            if (!updatedUserData.recurringTemplates) {
+                updatedUserData.recurringTemplates = [];
             }
             
             const template = {
@@ -369,10 +400,11 @@ export class RecurringExpenseService {
                 createdAt: new Date().toISOString()
             };
             
-            userData.recurringTemplates.push(template);
-            await ExpenseService.saveUserData(kv, userId, userData);
+            updatedUserData.recurringTemplates.push(template);
+            await ExpenseService.saveUserData(kv, userId, updatedUserData);
             
             console.info(`✅ TEMPLATE: Added recurring template '${template.name}'`);
+            console.debug(`   Total templates now: ${updatedUserData.recurringTemplates.length}`);
             
         } catch (error) {
             console.error(`❌ ERROR: Failed to add recurring template: ${error.message}`);
@@ -444,6 +476,13 @@ export class RecurringExpenseService {
                 
                 // Check if expenses for this period already exist to avoid duplicates
                 const existingExpenseIds = new Set();
+                
+                // Always initialize expenses array if it doesn't exist
+                if (!userData.expenses) {
+                    userData.expenses = [];
+                }
+                
+                // Build set of existing expenses for this period
                 userData.expenses.forEach(expense => {
                     const expenseDate = new Date(expense.timestamp);
                     const expensePeriod = `${expenseDate.getFullYear()}-${(expenseDate.getMonth() + 1).toString().padStart(2, '0')}`;
