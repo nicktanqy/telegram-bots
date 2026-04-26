@@ -831,29 +831,27 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
      * @returns {Promise<Expense[]>} Array of expenses for current month
      */
     static async getMonthlyExpenses(kv, userId) {
-        // Get regular expenses
-        const expenses = await ExpenseService.getExpenses(kv, userId);
         const now = new Date();
         const currentYear = now.getFullYear();
         const currentMonth = now.getMonth();
         
-        // Filter regular expenses for current month
-        const regularExpenses = expenses.filter(expense => {
+        // Generate recurring expenses for current month FIRST (saves to DB)
+        const currentPeriod = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}`;
+        await RecurringExpenseService.generateRecurringExpenses(kv, userId, currentPeriod);
+        
+        // NOW fetch fresh expenses including any new recurring ones that were just added
+        const expenses = await ExpenseService.getExpenses(kv, userId);
+        
+        // Filter ALL expenses (regular + recurring) for current month
+        const monthlyExpenses = expenses.filter(expense => {
             const expenseDate = new Date(expense.timestamp);
             return expenseDate.getFullYear() === currentYear && expenseDate.getMonth() === currentMonth;
         });
         
-        // Generate recurring expenses for current month
-        const currentPeriod = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}`;
-        const recurringExpenses = await RecurringExpenseService.generateRecurringExpenses(kv, userId, currentPeriod);
+        // Sort by timestamp (most recent first)
+        monthlyExpenses.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         
-        // Combine regular and recurring expenses
-        const allExpenses = [...regularExpenses, ...recurringExpenses];
-        
-        // Sort by timestamp
-        allExpenses.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-        
-        return allExpenses;
+        return monthlyExpenses;
     }
 
     /**
