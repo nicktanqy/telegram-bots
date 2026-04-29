@@ -226,9 +226,12 @@ function createEditProfileFlow() {
                     "What is your name?",
                     FieldType.TEXT,
                     (value) => {
-                        if (value && value.trim().length > 0 && value.trim().length < 2) {
-                            return { isValid: false, errorMessage: "Name must be at least 2 characters long." };
+                        if (value && value.trim().length > 0) {
+                            if (value.trim().length < 2) {
+                                return { isValid: false, errorMessage: "Name must be at least 2 characters long." };
+                            }
                         }
+                        // Only accept empty values if user explicitly sent empty input (not the command message)
                         return { isValid: true, errorMessage: null };
                     },
                     false,

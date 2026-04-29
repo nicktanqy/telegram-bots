@@ -166,6 +166,12 @@ export class GenericConversationHandler {
                 return 1;
             }
             
+            // ✅ Fix: Skip processing if this is the command message or flow name that started the flow
+            if (currentStep === 0 && (input.startsWith('/') || input === flowName)) {
+                console.debug(`⏭️ SKIP: Ignoring command/flow trigger message as first step input`);
+                return 1;
+            }
+            
             const flow = this.flows[flowName];
             const step = flow.getStep(currentStep);
             

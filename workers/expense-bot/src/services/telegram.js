@@ -10,6 +10,33 @@ const RATE_LIMIT_DELAY = 500; // 500ms between messages
  */
 export class TelegramService {
     /**
+     * Escape special characters for Telegram Markdown parsing
+     * @param {string} text - Text to escape
+     * @returns {string} Escaped text
+     */
+    static escapeMarkdown(text) {
+        if (!text) return '';
+        return text.toString()
+            .replace(/\_/g, '\\_')
+            .replace(/\*/g, '\\*')
+            .replace(/\[/g, '\\[')
+            .replace(/\]/g, '\\]')
+            .replace(/\(/g, '\\(')
+            .replace(/\)/g, '\\)')
+            .replace(/\~/g, '\\~')
+            .replace(/\`/g, '\\`')
+            .replace(/\>/g, '\\>')
+            .replace(/\#/g, '\\#')
+            .replace(/\+/g, '\\+')
+            .replace(/\-/g, '\\-')
+            .replace(/\=/g, '\\=')
+            .replace(/\|/g, '\\|')
+            .replace(/\{/g, '\\{')
+            .replace(/\}/g, '\\}')
+            .replace(/\./g, '\\.')
+            .replace(/\!/g, '\\!');
+    }
+    /**
      * Get bot token from environment
      * @param {Object} env - Environment variables
      * @returns {string} Bot token
@@ -121,6 +148,9 @@ export class TelegramService {
                     return await this.sendMessage(env, chatId, text, keyboard);
                 } else if (errorData.error_code === 403) {
                     console.warn(`⚠️  BLOCKED: User ${chatId} has blocked the bot`);
+                    return;
+                } else if (errorData.error_code === 400) {
+                    console.error(`❌ BAD_REQUEST: Permanent failure - will NOT retry: ${errorMessage}`);
                     return;
                 }
             }

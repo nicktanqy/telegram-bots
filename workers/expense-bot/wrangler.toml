@@ -4,6 +4,9 @@ name = "billy-bot"
 main = "src/index.js"
 compatibility_date = "2025-03-13"
 
+[placement]
+mode = "smart"
+
 # Build configuration
 [build]
 command = "echo 'No build step required for ES modules'"

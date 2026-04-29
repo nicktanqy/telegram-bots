@@ -4,6 +4,7 @@
  */
 
 import { Expense } from './models.js';
+import { buildProgressMessage } from './utils/messageBuilder.js';
 
 /**
  * Parse Apple Pay transaction message.
@@ -814,8 +815,11 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
             monthlySavingsNeeded = amountNeeded / monthsRemaining;
         }
         
-        const journeyProgress = monthsRemaining > 0 ? 
-            ((monthsRemaining - (savingsGoal - currentSavings) / monthlySavingsNeeded) / monthsRemaining * 100) : 0;
+        let journeyProgress = 0;
+        if (monthsRemaining > 0 && monthlySavingsNeeded > 0) {
+            const amountNeeded = savingsGoal - currentSavings;
+            journeyProgress = ((monthsRemaining - amountNeeded / monthlySavingsNeeded) / monthsRemaining * 100);
+        }
         
         return {
             monthsRemaining,
@@ -1036,9 +1040,44 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
         try {
             console.log('⏰ SCHEDULED: Starting monthly report distribution');
             
-            // Note: In a real implementation, you would need to maintain a list of active user IDs
-            // This is a placeholder for the actual implementation
-            // You could store user IDs in a separate KV namespace or use a different approach
+            // Get all user IDs (you need to maintain this list in KV)
+            // For implementation: store active user IDs in a list in BOT_CONFIG KV
+            const userIds = await env.BOT_CONFIG.get('active_users', 'json') || [];
+            
+            // Get current month name
+            const monthName = new Date().toLocaleString('default', { month: 'long' });
+            
+            // Send progress message to each user
+            for (const userId of userIds) {
+                try {
+                    const kv = env.USER_DATA;
+                    
+                    // Skip users who haven't initialized profile
+                    const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
+                    if (!isInitialized) continue;
+                    
+                    // Get user chat ID (stored in user data)
+                    const userData = await ExpenseService.getUserData(kv, userId);
+                    const chatId = userData.chatId;
+                    
+                    if (!chatId) continue;
+                    
+                    // Generate EXACT same message as /progress command
+                    const progress = await ProfileService.getMonthlySavingsProgress(kv, userId);
+                    const alert = await ProfileService.checkBudgetAlert(kv, userId);
+                    
+                    // Import buildProgressMessage at top of file first
+                    const message = buildProgressMessage(progress, monthName, alert);
+                    
+                    // Send message
+                    await this.sendMessage(env, chatId, message);
+                    
+                    console.log(`✅ Sent monthly progress to user ${userId}`);
+                    
+                } catch (userError) {
+                    console.error(`❌ Failed to send report to user ${userId}: ${userError.message}`);
+                }
+            }
             
             console.log('✅ SCHEDULED: Monthly reports completed');
             
