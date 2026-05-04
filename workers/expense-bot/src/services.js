@@ -187,7 +187,7 @@ export class ExpenseService {
     }
 
     /**
-     * Get user data from KV
+     * Get user data from KV with automatic month rollover
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
      * @returns {Promise<Object>} User data object
@@ -195,9 +195,7 @@ export class ExpenseService {
     static async getUserData(kv, userId) {
         try {
             const data = await kv.get(userId, "json");
-            // NEVER return empty object - Cloudflare KV will not create new keys for empty objects
-            // This was the root cause - first write with {} would succeed but not create the actual key
-            return data || {
+            let userData = data || {
                 expenses: [],
                 recurringTemplates: [],
                 name: "User",
@@ -207,8 +205,51 @@ export class ExpenseService {
                 savingsGoal: 0,
                 monthlyCashIncome: 0,
                 monthlySavingsGoal: 0,
-                isInitialized: false
+                isInitialized: false,
+                monthlyHistory: {},
+                lastActiveMonth: null
             };
+
+            // Initialize new fields for existing users
+            if (!userData.monthlyHistory) userData.monthlyHistory = {};
+            if (!userData.lastActiveMonth) userData.lastActiveMonth = null;
+
+            // Check if we need to perform month rollover
+            const now = new Date();
+            const currentMonth = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+            
+            if (userData.lastActiveMonth && userData.lastActiveMonth !== currentMonth) {
+                console.info(`🔄 MONTH_ROLLOVER: Rolling over from ${userData.lastActiveMonth} to ${currentMonth} for user ${userId}`);
+                
+                // Calculate final stats for closing month
+                const previousMonthExpenses = userData.expenses || [];
+                const previousTotal = previousMonthExpenses.reduce((sum, e) => sum + e.amount, 0);
+                
+                // Archive to history
+                userData.monthlyHistory[userData.lastActiveMonth] = {
+                    total: previousTotal,
+                    count: previousMonthExpenses.length,
+                    average: previousMonthExpenses.length > 0 ? previousTotal / previousMonthExpenses.length : 0,
+                    archivedAt: new Date().toISOString()
+                };
+
+                // Keep only last 24 months of history
+                const sortedMonths = Object.keys(userData.monthlyHistory).sort().reverse();
+                if (sortedMonths.length > 24) {
+                    const monthsToDelete = sortedMonths.slice(24);
+                    monthsToDelete.forEach(month => delete userData.monthlyHistory[month]);
+                }
+
+                // Clear expenses array for new month
+                userData.expenses = [];
+                
+                console.info(`✅ MONTH_ROLLOVER: Archived ${userData.lastActiveMonth} with total $${previousTotal.toFixed(2)}, ${previousMonthExpenses.length} expenses`);
+            }
+
+            // Update last active month
+            userData.lastActiveMonth = currentMonth;
+
+            return userData;
         } catch (error) {
             console.error(`❌ ERROR: Failed to get user data for ${userId}: ${error.message}`);
             return {
@@ -221,7 +262,9 @@ export class ExpenseService {
                 savingsGoal: 0,
                 monthlyCashIncome: 0,
                 monthlySavingsGoal: 0,
-                isInitialized: false
+                isInitialized: false,
+                monthlyHistory: {},
+                lastActiveMonth: null
             };
         }
     }
@@ -829,6 +872,34 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
     }
 
     /**
+     * Get monthly expenses for specified month including recurring expenses
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @param {number} year - Year (e.g. 2026)
+     * @param {number} month - Month (0-11, January = 0)
+     * @returns {Promise<Expense[]>} Array of expenses for specified month
+     */
+    static async getExpensesForMonth(kv, userId, year, month) {
+        // Generate recurring expenses for requested month FIRST (saves to DB)
+        const period = `${year}-${(month + 1).toString().padStart(2, '0')}`;
+        await RecurringExpenseService.generateRecurringExpenses(kv, userId, period);
+        
+        // NOW fetch fresh expenses including any new recurring ones that were just added
+        const expenses = await ExpenseService.getExpenses(kv, userId);
+        
+        // Filter ALL expenses (regular + recurring) for requested month
+        const monthlyExpenses = expenses.filter(expense => {
+            const expenseDate = new Date(expense.timestamp);
+            return expenseDate.getFullYear() === year && expenseDate.getMonth() === month;
+        });
+        
+        // Sort by timestamp (most recent first)
+        monthlyExpenses.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        
+        return monthlyExpenses;
+    }
+
+    /**
      * Get monthly expenses for current month including recurring expenses
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
@@ -836,26 +907,7 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
      */
     static async getMonthlyExpenses(kv, userId) {
         const now = new Date();
-        const currentYear = now.getFullYear();
-        const currentMonth = now.getMonth();
-        
-        // Generate recurring expenses for current month FIRST (saves to DB)
-        const currentPeriod = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}`;
-        await RecurringExpenseService.generateRecurringExpenses(kv, userId, currentPeriod);
-        
-        // NOW fetch fresh expenses including any new recurring ones that were just added
-        const expenses = await ExpenseService.getExpenses(kv, userId);
-        
-        // Filter ALL expenses (regular + recurring) for current month
-        const monthlyExpenses = expenses.filter(expense => {
-            const expenseDate = new Date(expense.timestamp);
-            return expenseDate.getFullYear() === currentYear && expenseDate.getMonth() === currentMonth;
-        });
-        
-        // Sort by timestamp (most recent first)
-        monthlyExpenses.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-        
-        return monthlyExpenses;
+        return this.getExpensesForMonth(kv, userId, now.getFullYear(), now.getMonth());
     }
 
     /**
@@ -966,6 +1018,38 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
     }
 
     /**
+     * Get month over month comparison statistics
+     * @param {KVNamespace} kv - Cloudflare KV namespace
+     * @param {string} userId - User ID
+     * @returns {Promise<Object>} Comparison data
+     */
+    static async getMonthComparison(kv, userId) {
+        const userData = await ExpenseService.getUserData(kv, userId);
+        const currentTotal = await this.getTotalMonthlyExpenses(kv, userId);
+        
+        const now = new Date();
+        const lastMonth = `${now.getFullYear()}-${now.getMonth().toString().padStart(2, '0')}`;
+        const previousMonthData = userData.monthlyHistory[lastMonth];
+        
+        const result = {
+            currentMonth: `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`,
+            currentTotal,
+            previousMonth: lastMonth,
+            previousTotal: previousMonthData ? previousMonthData.total : 0,
+            difference: 0,
+            percentageChange: 0,
+            hasHistory: !!previousMonthData
+        };
+
+        if (result.previousTotal > 0) {
+            result.difference = currentTotal - result.previousTotal;
+            result.percentageChange = ((currentTotal - result.previousTotal) / result.previousTotal * 100);
+        }
+
+        return result;
+    }
+
+    /**
      * Check if user should receive budget alert
      * @param {KVNamespace} kv - Cloudflare KV namespace
      * @param {string} userId - User ID
@@ -1005,7 +1089,12 @@ Budget Remaining: $${budgetRemaining.toFixed(2)}`;
             const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
             const monthName = lastMonth.toLocaleString('default', { month: 'long' }) + ' ' + lastMonth.getFullYear();
             
-            const monthlyExpenses = await ProfileService.getMonthlyExpenses(env.USER_DATA, userId);
+            const monthlyExpenses = await ProfileService.getExpensesForMonth(
+                env.USER_DATA, 
+                userId, 
+                lastMonth.getFullYear(), 
+                lastMonth.getMonth()
+            );
             const totalExpenses = monthlyExpenses.reduce((total, expense) => total + expense.amount, 0);
             
             const expensesByCategory = await ProfileService.getMonthlyExpensesByCategory(env.USER_DATA, userId);
@@ -1044,8 +1133,10 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
             // For implementation: store active user IDs in a list in BOT_CONFIG KV
             const userIds = await env.BOT_CONFIG.get('active_users', 'json') || [];
             
-            // Get current month name
-            const monthName = new Date().toLocaleString('default', { month: 'long' });
+            // Get PREVIOUS month name for reporting
+            const now = new Date();
+            const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const monthName = lastMonth.toLocaleString('default', { month: 'long' });
             
             // Send progress message to each user
             for (const userId of userIds) {
