@@ -1147,11 +1147,8 @@ Total Expenses: $${totalExpenses.toFixed(2)}`;
                     const isInitialized = await ProfileService.isProfileInitialized(kv, userId);
                     if (!isInitialized) continue;
                     
-                    // Get user chat ID (stored in user data)
-                    const userData = await ExpenseService.getUserData(kv, userId);
-                    const chatId = userData.chatId;
-                    
-                    if (!chatId) continue;
+                    // userId IS chatId for private Telegram chats
+                    const chatId = parseInt(userId);
                     
                     // Generate EXACT same message as /progress command
                     const progress = await ProfileService.getMonthlySavingsProgress(kv, userId);

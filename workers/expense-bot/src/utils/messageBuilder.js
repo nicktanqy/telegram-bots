@@ -16,7 +16,7 @@ const SEPARATOR = '━━━━━━━━━━━━━━━━';
  * @returns {string} Formatted progress message
  */
 export function buildProgressMessage(progressData, monthName, alert = null) {
-    let message = `📊 **Monthly Progress - ${monthName}**
+    let message = `📊 **Last Month's Expenses - ${monthName}**
 ${SEPARATOR}
 Total Expenses: $${progressData.totalExpenses.toFixed(2)}
 Monthly Income: $${progressData.monthlyCashIncome.toFixed(2)}
