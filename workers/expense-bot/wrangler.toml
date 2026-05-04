@@ -25,9 +25,6 @@ id = "019666d2c8f546ea883a04536951b568"
 [env.development]
 # Development environment variables will be set via wrangler secret commands
 
-# Add BOT_TOKEN for local development
-vars = { BOT_TOKEN = "7883050713:AAExYcUfhEj-n_d9ipFZ2ZZZ5qPc-eIVHVU" }
-
 # KV Namespace bindings for development environment (required for inheritance)
 [[env.development.kv_namespaces]]
 binding = "USER_DATA"
